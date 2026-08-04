@@ -1,5 +1,11 @@
 $ErrorActionPreference = "Stop"
 
+Set-Variable -Name AagentExitOk -Value 0 -Option Constant -Scope Script
+Set-Variable -Name AagentExitUsage -Value 64 -Option Constant -Scope Script
+Set-Variable -Name AagentExitUnavailable -Value 69 -Option Constant -Scope Script
+Set-Variable -Name AagentExitSoftware -Value 70 -Option Constant -Scope Script
+Set-Variable -Name AagentExitConfig -Value 78 -Option Constant -Scope Script
+
 function Show-Help {
     @'
 aagent
@@ -31,6 +37,6 @@ switch ($firstArgument) {
     default {
         [Console]::Error.WriteLine("aagent: unknown argument: $firstArgument")
         [Console]::Error.WriteLine("Try 'aagent --help' for more information.")
-        exit 1
+        exit $AagentExitUsage
     }
 }

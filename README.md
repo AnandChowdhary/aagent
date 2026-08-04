@@ -55,6 +55,12 @@ pwsh ./tests/test_aagent.ps1
 
 GitHub Actions runs the Bash suite on Linux, macOS, and Windows, and the PowerShell suite on Windows.
 
+The test entrypoints create an isolated home, configuration directory, and
+controlled `PATH`. Tier 1 provider behavior is simulated by credential-free
+fake executables documented in
+[tests/helpers/README.md](tests/helpers/README.md); normal tests never invoke a
+locally installed coding agent.
+
 ## License
 
 [MIT](LICENSE)
