@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: Phase 2 complete; Phase 3 next
+Current milestone: Phase 3 complete; Phase 4 next
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -194,52 +194,55 @@ Deliverable: the complete wrapper grammar without provider selection or launch
 Dependencies: Phase 2
 Deliverable: inspectable metadata and deterministic installed-provider results
 
-- [ ] **P3-01 Define the internal adapter record.**
+- [x] **P3-01 Define the internal adapter record.**
   Represent provider ID, display name, executable, override variable, command
   shape, stdin modes, model support, structured/session capability, safety
   note, probe capability, popularity rank, and stable registry rank.
 
-- [ ] **P3-02 Register the five Tier 1 adapters.**
+- [x] **P3-02 Register the five Tier 1 adapters.**
   Add `claude`, `codex`, `opencode`, `amp`, and `gemini` in the documented
   registry order with no adapter-specific condition in global parsing.
 
-- [ ] **P3-03 Reserve Tier 2 identities.**
+- [x] **P3-03 Reserve Tier 2 identities.**
   Record metadata sufficient for `providers` to call them unsupported/planned,
   but do not make Tier 2 candidates runnable during the MVP.
 
-- [ ] **P3-04 Implement Bash `PATH` discovery.**
+- [x] **P3-04 Implement Bash `PATH` discovery.**
   Resolve executable files only, reject directories and non-executable targets,
   preserve paths containing spaces, and do not execute a version command during
   normal discovery.
 
-- [ ] **P3-05 Implement PowerShell command discovery.**
+- [x] **P3-05 Implement PowerShell command discovery.**
   Accept application and external-script commands; reject aliases, functions,
   cmdlets, and wrapper self-resolution.
 
-- [ ] **P3-06 Implement explicit executable overrides.**
+- [x] **P3-06 Implement explicit executable overrides.**
   Honor `AAGENT_<PROVIDER>_BIN`, validate the exact target, and treat an invalid
   override as that adapter being unavailable with a diagnostic reason.
 
-- [ ] **P3-07 Prevent wrapper recursion and name collisions.**
+- [x] **P3-07 Prevent wrapper recursion and name collisions.**
   Detect the current `aagent` runner path and ensure Cursor's native `agent`
   executable is a separate future adapter rather than an alias for the wrapper.
 
-- [ ] **P3-08 Separate missing, installed, and unsupported.**
+- [x] **P3-08 Separate missing, installed, and unsupported.**
   Discovery must return stable statuses and nonsecret reasons suitable for both
   automatic selection and introspection.
 
-- [ ] **P3-09 Freeze the popularity and registry snapshot.**
+- [x] **P3-09 Freeze the popularity and registry snapshot.**
   Encode the documented 2026-08-04 order as constants with a snapshot label;
   prove there is no runtime HTTP, package-manager, or telemetry call.
 
-- [ ] **P3-10 Test hostile executable paths.**
+- [x] **P3-10 Test hostile executable paths.**
   Cover spaces, Unicode, leading dashes, symlinks, broken links, non-executable
   files, same-name wrapper targets, and Windows `.exe/.cmd/.ps1` resolution.
 
 ### Phase 3 exit gate
 
-- [ ] Given a controlled `PATH`, both runners emit the same ordered registry
+- [x] Given a controlled `PATH`, both runners emit the same ordered registry
   with correct resolution status and never start a provider run.
+
+  Evidence: [PR #3](https://github.com/AnandChowdhary/aagent/pull/3) and
+  [cross-platform CI run 30949018135](https://github.com/AnandChowdhary/aagent/actions/runs/30949018135).
 
 ## Phase 4 - Process execution core
 
