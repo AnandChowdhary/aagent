@@ -1,0 +1,38 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-bash:
+    name: Bash (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Run Bash tests
+        shell: bash
+        run: bash ./tests/test_agent.sh
+
+  test-powershell:
+    name: PowerShell (windows-latest)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Run PowerShell tests
+        shell: pwsh
+        run: ./tests/test_agent.ps1
