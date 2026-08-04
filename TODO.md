@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: Phase 4 complete; Phase 5 next
+Current milestone: Phase 5 complete; Phase 6 next
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -303,51 +303,54 @@ Deliverable: one safe, platform-specific process launcher used by every adapter
 Dependencies: Phase 4
 Deliverable: correct one-shot execution for all five MVP providers
 
-- [ ] **P5-01 Implement Claude command construction.**
+- [x] **P5-01 Implement Claude command construction.**
   Build `claude --print PROMPT`, place `--model ID` and native arguments where
   Claude accepts them, support stdin modes, and never add `--bare` or a
   permission bypass.
 
-- [ ] **P5-02 Implement Codex command construction.**
+- [x] **P5-02 Implement Codex command construction.**
   Build `codex exec PROMPT`, use `-` for stdin-only mode, preserve separate
   instruction plus stdin context, forward `--model ID`, and never add a sandbox
   escalation or `--skip-git-repo-check`.
 
-- [ ] **P5-03 Implement OpenCode command construction.**
+- [x] **P5-03 Implement OpenCode command construction.**
   Build `opencode run PROMPT`, forward `--model PROVIDER/MODEL`, use the
   documented or specified fallback for prompt-plus-stdin, and never add
   `--auto`.
 
-- [ ] **P5-04 Implement Amp command construction.**
+- [x] **P5-04 Implement Amp command construction.**
   Build `amp --execute PROMPT`, support its documented stdin combinations, and
   reject wrapper `--model` with status `64` before launch rather than mapping it
   to `--fast` or ignoring it.
 
-- [ ] **P5-05 Implement Gemini command construction.**
+- [x] **P5-05 Implement Gemini command construction.**
   Build `gemini --prompt PROMPT`, append piped context through documented stdin
   behavior, forward `--model ID`, and never add `--yolo` or change approval
   mode.
 
-- [ ] **P5-06 Place native options per adapter.**
+- [x] **P5-06 Place native options per adapter.**
   Test at least two native arguments and a leading-dash value for each provider
   so `--` content is neither re-parsed nor reordered incorrectly.
 
-- [ ] **P5-07 Cover every adapter input matrix.**
+- [x] **P5-07 Cover every adapter input matrix.**
   For each provider test positional prompt, stdin-only, prompt-plus-stdin,
   multiline input, empty input rejection, model support, and native options.
 
-- [ ] **P5-08 Cover every adapter process matrix.**
+- [x] **P5-08 Cover every adapter process matrix.**
   For each provider test stdout, stderr, success, non-zero status, cwd, quiet
   notice behavior, dry-run, and one-run-only guarantees.
 
-- [ ] **P5-09 Surface provider safety notes.**
+- [x] **P5-09 Surface provider safety notes.**
   Store the documented permission/side-effect distinction for later doctor
   output without attempting to normalize it.
 
 ### Phase 5 exit gate
 
-- [ ] Fake-executable snapshots for all five Tier 1 providers pass on Bash and
+- [x] Fake-executable snapshots for all five Tier 1 providers pass on Bash and
   PowerShell and satisfy acceptance criterion 1 without real credentials.
+
+  Evidence: [PR #5](https://github.com/AnandChowdhary/aagent/pull/5) and
+  [cross-platform CI run 30952123338](https://github.com/AnandChowdhary/aagent/actions/runs/30952123338).
 
 ## Phase 6 - User configuration and precedence
 
