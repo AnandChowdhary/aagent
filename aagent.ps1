@@ -411,6 +411,203 @@ function Invoke-AagentLaunchPlan {
     }
 }
 
+function New-AagentAdapterBuildResult([int] $Status, [string] $Error, $Plan) {
+    return [pscustomobject] @{
+        Status = $Status
+        Error = $Error
+        Plan = $Plan
+    }
+}
+
+function New-AagentAdapterLaunchPlan($Result, $Adapter, [string] $Executable) {
+    $arguments = [Collections.Generic.List[string]]::new()
+    $displayArguments = [Collections.Generic.List[string]]::new()
+    $stdinMode = "inherit"
+    $stdinData = ""
+    $inputDescription = "argv"
+
+    switch ($Result.InputMode) {
+        "prompt" {
+            $stdinMode = "inherit"
+            $inputDescription = "argv"
+        }
+        "stdin" {
+            $stdinMode = "data"
+            $stdinData = $Result.Stdin
+            $inputDescription = "stdin"
+        }
+        "both" {
+            $stdinMode = "data"
+            $stdinData = $Result.Stdin
+            $inputDescription = "both"
+        }
+        default {
+            return New-AagentAdapterBuildResult `
+                $AagentExitSoftware `
+                "unsupported resolved input mode: $($Result.InputMode)" `
+                $null
+        }
+    }
+
+    switch ($Adapter.Id) {
+        "claude" {
+            $arguments.Add("--print")
+            $displayArguments.Add("--print")
+            if ($Result.InputMode -ne "stdin") {
+                $arguments.Add($Result.Prompt)
+                $displayArguments.Add("<prompt>")
+            }
+            if (-not [string]::IsNullOrEmpty($Result.Model)) {
+                $arguments.Add("--model")
+                $displayArguments.Add("--model")
+                $arguments.Add($Result.Model)
+                $displayArguments.Add("<model>")
+            }
+            foreach ($argument in $Result.NativeArguments) {
+                $arguments.Add($argument)
+                $displayArguments.Add("<native>")
+            }
+        }
+        "codex" {
+            $arguments.Add("exec")
+            $displayArguments.Add("exec")
+            if (-not [string]::IsNullOrEmpty($Result.Model)) {
+                $arguments.Add("--model")
+                $displayArguments.Add("--model")
+                $arguments.Add($Result.Model)
+                $displayArguments.Add("<model>")
+            }
+            foreach ($argument in $Result.NativeArguments) {
+                $arguments.Add($argument)
+                $displayArguments.Add("<native>")
+            }
+            if ($Result.InputMode -eq "stdin") {
+                $arguments.Add("-")
+                $displayArguments.Add("-")
+            } else {
+                $arguments.Add($Result.Prompt)
+                $displayArguments.Add("<prompt>")
+            }
+        }
+        "opencode" {
+            $arguments.Add("run")
+            $displayArguments.Add("run")
+            if (-not [string]::IsNullOrEmpty($Result.Model)) {
+                $arguments.Add("--model")
+                $displayArguments.Add("--model")
+                $arguments.Add($Result.Model)
+                $displayArguments.Add("<model>")
+            }
+            foreach ($argument in $Result.NativeArguments) {
+                $arguments.Add($argument)
+                $displayArguments.Add("<native>")
+            }
+
+            $combinedPrompt = switch ($Result.InputMode) {
+                "prompt" { $Result.Prompt }
+                "stdin" { $Result.Stdin }
+                "both" { "$($Result.Prompt)`n`n--- stdin context ---`n$($Result.Stdin)" }
+            }
+            $arguments.Add($combinedPrompt)
+            $displayArguments.Add("<prompt>")
+            $stdinMode = "closed"
+            $stdinData = ""
+            $inputDescription = "argv"
+        }
+        "amp" {
+            if (-not [string]::IsNullOrEmpty($Result.Model)) {
+                return New-AagentAdapterBuildResult `
+                    $AagentExitUsage `
+                    "provider amp does not support --model" `
+                    $null
+            }
+            $arguments.Add("--execute")
+            $displayArguments.Add("--execute")
+            if ($Result.InputMode -ne "stdin") {
+                $arguments.Add($Result.Prompt)
+                $displayArguments.Add("<prompt>")
+            }
+            foreach ($argument in $Result.NativeArguments) {
+                $arguments.Add($argument)
+                $displayArguments.Add("<native>")
+            }
+        }
+        "gemini" {
+            if (-not [string]::IsNullOrEmpty($Result.Model)) {
+                $arguments.Add("--model")
+                $displayArguments.Add("--model")
+                $arguments.Add($Result.Model)
+                $displayArguments.Add("<model>")
+            }
+            foreach ($argument in $Result.NativeArguments) {
+                $arguments.Add($argument)
+                $displayArguments.Add("<native>")
+            }
+            if ($Result.InputMode -ne "stdin") {
+                $arguments.Add("--prompt")
+                $displayArguments.Add("--prompt")
+                $arguments.Add($Result.Prompt)
+                $displayArguments.Add("<prompt>")
+            }
+        }
+        default {
+            return New-AagentAdapterBuildResult `
+                $AagentExitUsage `
+                "provider adapter is not implemented: $($Adapter.Id)" `
+                $null
+        }
+    }
+
+    try {
+        $plan = New-AagentLaunchPlan `
+            -Executable $Executable `
+            -Arguments ([string[]] $arguments) `
+            -WorkingDirectory $Result.Cwd `
+            -StdinMode $stdinMode `
+            -Stdin $stdinData `
+            -InputDescription $inputDescription
+        if ($displayArguments.Count -gt 0) {
+            Set-AagentLaunchDisplayArguments $plan ([string[]] $displayArguments)
+        }
+        $plan.Provider = $Adapter.Id
+        $plan.Reason = "explicit --provider"
+        $plan.Notice = "selected $($Adapter.Name) via explicit --provider"
+        return New-AagentAdapterBuildResult $AagentExitOk "" $plan
+    } catch {
+        return New-AagentAdapterBuildResult $AagentExitSoftware $_.Exception.Message $null
+    }
+}
+
+function Invoke-AagentExplicitProvider($Result) {
+    $adapter = Get-AagentAdapter $Result.Provider
+    if ($null -eq $adapter) {
+        Write-AagentUsageError "unknown provider: $($Result.Provider)"
+        return $AagentExitUsage
+    }
+    if ($adapter.Tier -ne "tier1") {
+        Write-AagentUsageError "provider adapter is not implemented: $($Result.Provider)"
+        return $AagentExitUsage
+    }
+
+    $target = Resolve-AagentDiscoveryTarget $adapter
+    if (-not $target.Found) {
+        [Console]::Error.WriteLine("aagent: provider $($Result.Provider) is unavailable: $($target.Reason)")
+        return $AagentExitUnavailable
+    }
+
+    $build = New-AagentAdapterLaunchPlan $Result $adapter $target.Path
+    if ($build.Status -ne $AagentExitOk) {
+        if ($build.Status -eq $AagentExitUsage) {
+            Write-AagentUsageError $build.Error
+        } elseif (-not [string]::IsNullOrEmpty($build.Error)) {
+            [Console]::Error.WriteLine("aagent: $($build.Error)")
+        }
+        return $build.Status
+    }
+
+    return Invoke-AagentLaunchPlan -Plan $build.Plan -DryRun:$Result.DryRun -Quiet:$Result.Quiet
+}
+
 function Show-AagentHelp {
     @'
 aagent
@@ -685,7 +882,11 @@ function Invoke-Aagent {
         return $result.Status
     }
 
-    [Console]::Error.WriteLine("aagent: provider discovery is not available in this build yet")
+    if (-not [string]::IsNullOrEmpty($result.Provider)) {
+        return Invoke-AagentExplicitProvider $result
+    }
+
+    [Console]::Error.WriteLine("aagent: automatic provider selection is not available in this build yet")
     return $AagentExitUnavailable
 }
 

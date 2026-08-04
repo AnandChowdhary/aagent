@@ -9,6 +9,7 @@ fake_provider="$project_root/tests/helpers/fake-provider.sh"
 parser_test="$project_root/tests/test_parser.sh"
 discovery_test="$project_root/tests/test_discovery.sh"
 launch_test="$project_root/tests/test_launch.sh"
+adapter_test="$project_root/tests/test_adapters.sh"
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -47,6 +48,7 @@ bash -n \
     "$parser_test" \
     "$discovery_test" \
     "$launch_test" \
+    "$adapter_test" \
     "${BASH_SOURCE[0]}"
 
 test_dir="$(mktemp -d)"
@@ -197,5 +199,6 @@ assert_equals "$(tr -d '\r\n' < "$record_dir/run.count")" "5" "probe fixtures ch
 bash "$parser_test"
 bash "$discovery_test"
 bash "$launch_test"
+bash "$adapter_test"
 
 printf 'All Bash tests passed.\n'

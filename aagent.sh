@@ -425,6 +425,191 @@ aagent_execute_launch_plan() {
     return "$status"
 }
 
+aagent_reset_adapter_plan() {
+    AAGENT_ADAPTER_ARGUMENTS=()
+    AAGENT_ADAPTER_DISPLAY_ARGUMENTS=()
+    AAGENT_ADAPTER_STDIN_MODE="inherit"
+    AAGENT_ADAPTER_STDIN_DATA=""
+    AAGENT_ADAPTER_INPUT_DESCRIPTION="argv"
+    AAGENT_ADAPTER_ERROR=""
+}
+
+aagent_append_adapter_argument() {
+    AAGENT_ADAPTER_ARGUMENTS+=("$1")
+    AAGENT_ADAPTER_DISPLAY_ARGUMENTS+=("$2")
+}
+
+aagent_append_native_arguments() {
+    local index
+    for ((index = 0; index < ${#AAGENT_NATIVE_ARGS[@]}; index++)); do
+        aagent_append_adapter_argument "${AAGENT_NATIVE_ARGS[$index]}" "<native>"
+    done
+}
+
+aagent_configure_adapter_stdin() {
+    case "$AAGENT_INPUT_MODE" in
+        prompt)
+            AAGENT_ADAPTER_STDIN_MODE="inherit"
+            AAGENT_ADAPTER_STDIN_DATA=""
+            AAGENT_ADAPTER_INPUT_DESCRIPTION="argv"
+            ;;
+        stdin)
+            AAGENT_ADAPTER_STDIN_MODE="data"
+            AAGENT_ADAPTER_STDIN_DATA="$AAGENT_STDIN"
+            AAGENT_ADAPTER_INPUT_DESCRIPTION="stdin"
+            ;;
+        both)
+            AAGENT_ADAPTER_STDIN_MODE="data"
+            AAGENT_ADAPTER_STDIN_DATA="$AAGENT_STDIN"
+            AAGENT_ADAPTER_INPUT_DESCRIPTION="both"
+            ;;
+        *)
+            AAGENT_ADAPTER_ERROR="unsupported resolved input mode: $AAGENT_INPUT_MODE"
+            return "$AAGENT_EXIT_SOFTWARE"
+            ;;
+    esac
+}
+
+aagent_append_model_argument() {
+    local flag="$1"
+    if [[ -n "$AAGENT_MODEL" ]]; then
+        aagent_append_adapter_argument "$flag" "$flag"
+        aagent_append_adapter_argument "$AAGENT_MODEL" "<model>"
+    fi
+}
+
+aagent_build_adapter_launch_plan() {
+    local provider="$1"
+    local executable="$2"
+    local display_name="$3"
+    local combined_prompt
+
+    aagent_reset_adapter_plan
+    aagent_configure_adapter_stdin || return $?
+
+    case "$provider" in
+        claude)
+            aagent_append_adapter_argument "--print" "--print"
+            if [[ "$AAGENT_INPUT_MODE" != "stdin" ]]; then
+                aagent_append_adapter_argument "$AAGENT_PROMPT" "<prompt>"
+            fi
+            aagent_append_model_argument "--model"
+            aagent_append_native_arguments
+            ;;
+        codex)
+            aagent_append_adapter_argument "exec" "exec"
+            aagent_append_model_argument "--model"
+            aagent_append_native_arguments
+            if [[ "$AAGENT_INPUT_MODE" == "stdin" ]]; then
+                aagent_append_adapter_argument "-" "-"
+            else
+                aagent_append_adapter_argument "$AAGENT_PROMPT" "<prompt>"
+            fi
+            ;;
+        opencode)
+            aagent_append_adapter_argument "run" "run"
+            aagent_append_model_argument "--model"
+            aagent_append_native_arguments
+            case "$AAGENT_INPUT_MODE" in
+                prompt)
+                    combined_prompt="$AAGENT_PROMPT"
+                    ;;
+                stdin)
+                    combined_prompt="$AAGENT_STDIN"
+                    ;;
+                both)
+                    combined_prompt="$AAGENT_PROMPT"$'\n\n--- stdin context ---\n'"$AAGENT_STDIN"
+                    ;;
+            esac
+            aagent_append_adapter_argument "$combined_prompt" "<prompt>"
+            AAGENT_ADAPTER_STDIN_MODE="closed"
+            AAGENT_ADAPTER_STDIN_DATA=""
+            AAGENT_ADAPTER_INPUT_DESCRIPTION="argv"
+            ;;
+        amp)
+            if [[ -n "$AAGENT_MODEL" ]]; then
+                AAGENT_ADAPTER_ERROR="provider amp does not support --model"
+                return "$AAGENT_EXIT_USAGE"
+            fi
+            aagent_append_adapter_argument "--execute" "--execute"
+            if [[ "$AAGENT_INPUT_MODE" != "stdin" ]]; then
+                aagent_append_adapter_argument "$AAGENT_PROMPT" "<prompt>"
+            fi
+            aagent_append_native_arguments
+            ;;
+        gemini)
+            aagent_append_model_argument "--model"
+            aagent_append_native_arguments
+            if [[ "$AAGENT_INPUT_MODE" != "stdin" ]]; then
+                aagent_append_adapter_argument "--prompt" "--prompt"
+                aagent_append_adapter_argument "$AAGENT_PROMPT" "<prompt>"
+            fi
+            ;;
+        *)
+            AAGENT_ADAPTER_ERROR="provider adapter is not implemented: $provider"
+            return "$AAGENT_EXIT_USAGE"
+            ;;
+    esac
+
+    aagent_create_launch_plan \
+        "$executable" \
+        "$AAGENT_CWD" \
+        "$AAGENT_ADAPTER_STDIN_MODE" \
+        "$AAGENT_ADAPTER_STDIN_DATA" \
+        "$AAGENT_ADAPTER_INPUT_DESCRIPTION" \
+        "${AAGENT_ADAPTER_ARGUMENTS[@]+"${AAGENT_ADAPTER_ARGUMENTS[@]}"}" || return $?
+
+    if (( ${#AAGENT_ADAPTER_DISPLAY_ARGUMENTS[@]} > 0 )); then
+        aagent_launch_plan_set_display_arguments "${AAGENT_ADAPTER_DISPLAY_ARGUMENTS[@]}" || return $?
+    fi
+    AAGENT_LAUNCH_PROVIDER="$provider"
+    AAGENT_LAUNCH_REASON="explicit --provider"
+    AAGENT_LAUNCH_NOTICE="selected $display_name via explicit --provider"
+}
+
+aagent_run_explicit_provider() {
+    local provider="$1"
+    local index
+    local status
+
+    aagent_initialize_registry
+    if ! index="$(aagent_get_adapter_index "$provider")"; then
+        aagent_print_usage_error "unknown provider: $provider"
+        return "$AAGENT_EXIT_USAGE"
+    fi
+    if [[ "${AAGENT_ADAPTER_TIERS[$index]}" != "tier1" ]]; then
+        aagent_print_usage_error "provider adapter is not implemented: $provider"
+        return "$AAGENT_EXIT_USAGE"
+    fi
+    if ! aagent_resolve_discovery_target \
+        "${AAGENT_ADAPTER_EXECUTABLES[$index]}" \
+        "${AAGENT_ADAPTER_OVERRIDES[$index]}"; then
+        printf 'aagent: provider %s is unavailable: %s\n' "$provider" "$AAGENT_DISCOVERY_REASON" >&2
+        return "$AAGENT_EXIT_UNAVAILABLE"
+    fi
+
+    if aagent_build_adapter_launch_plan \
+        "$provider" \
+        "$AAGENT_RESOLVED_PATH" \
+        "${AAGENT_ADAPTER_NAMES[$index]}"; then
+        :
+    else
+        status=$?
+        if [[ "$status" == "$AAGENT_EXIT_USAGE" ]]; then
+            aagent_print_usage_error "$AAGENT_ADAPTER_ERROR"
+        elif [[ -n "$AAGENT_ADAPTER_ERROR" ]]; then
+            printf 'aagent: %s\n' "$AAGENT_ADAPTER_ERROR" >&2
+        fi
+        return "$status"
+    fi
+
+    if aagent_execute_launch_plan "$AAGENT_DRY_RUN" "$AAGENT_QUIET"; then
+        return "$AAGENT_EXIT_OK"
+    else
+        return $?
+    fi
+}
+
 aagent_print_help() {
     cat <<'EOF'
 aagent
@@ -721,7 +906,12 @@ aagent_main() {
         return "$status"
     }
 
-    printf 'aagent: provider discovery is not available in this build yet\n' >&2
+    if [[ -n "$AAGENT_PROVIDER" ]]; then
+        aagent_run_explicit_provider "$AAGENT_PROVIDER" || return $?
+        return "$AAGENT_EXIT_OK"
+    fi
+
+    printf 'aagent: automatic provider selection is not available in this build yet\n' >&2
     return "$AAGENT_EXIT_UNAVAILABLE"
 }
 
