@@ -70,15 +70,19 @@ aagent_parse_arguments \
     --model sonnet \
     -C "$work_dir" \
     --auth-policy native \
+    --priority claude,codex \
+    --allow-local true \
     --dry-run \
     --quiet \
     "say" "hello" \
     -- --sandbox workspace-write
 
 assert_equals "$AAGENT_COMMAND" "run" "run command differs"
-assert_equals "$AAGENT_PROVIDER" "claude" "provider differs"
+assert_equals "$AAGENT_CLI_PROVIDER" "claude" "provider differs"
 assert_equals "$AAGENT_MODEL" "sonnet" "model differs"
-assert_equals "$AAGENT_AUTH_POLICY" "native" "auth policy differs"
+assert_equals "$AAGENT_CLI_AUTH_POLICY" "native" "auth policy differs"
+assert_equals "$AAGENT_CLI_PRIORITY" "claude,codex" "priority differs"
+assert_equals "$AAGENT_CLI_ALLOW_LOCAL" "true" "allow-local differs"
 assert_equals "$AAGENT_DRY_RUN" "1" "dry-run flag differs"
 assert_equals "$AAGENT_QUIET" "1" "quiet flag differs"
 assert_equals "$AAGENT_CWD" "$(cd "$work_dir" && pwd -P)" "resolved cwd differs"
@@ -122,6 +126,9 @@ assert_parse_error "option --model requires a value" --model ""
 assert_parse_error "option --cwd requires a value" --cwd
 assert_parse_error "option --auth-policy requires a value" --auth-policy
 assert_parse_error "invalid authentication policy: cheapest" --auth-policy cheapest prompt
+assert_parse_error "option --priority requires a value" --priority
+assert_parse_error "option --allow-local requires a value" --allow-local
+assert_parse_error "invalid --allow-local value" --allow-local yes prompt
 assert_parse_error "providers does not accept arguments" providers extra
 assert_parse_error "doctor accepts at most one provider" doctor claude extra
 assert_parse_error "unknown option: --bad" doctor --bad
@@ -205,6 +212,8 @@ assert_equals "${AAGENT_NATIVE_ARGS[1]}" "--" "literal native double dash differ
 help_output="$(bash "$aagent_script" --help)"
 [[ "$help_output" == *"aagent doctor [PROVIDER]"* ]] || fail "public help omits doctor"
 [[ "$help_output" == *"--auth-policy"* ]] || fail "public help omits auth policy"
+[[ "$help_output" == *"--priority"* ]] || fail "public help omits priority"
+[[ "$help_output" == *"--allow-local"* ]] || fail "public help omits allow-local"
 assert_equals "$(bash "$aagent_script" --version)" "aagent $AAGENT_VERSION" "public version differs"
 
 set +e

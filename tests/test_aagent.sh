@@ -10,6 +10,7 @@ parser_test="$project_root/tests/test_parser.sh"
 discovery_test="$project_root/tests/test_discovery.sh"
 launch_test="$project_root/tests/test_launch.sh"
 adapter_test="$project_root/tests/test_adapters.sh"
+config_test="$project_root/tests/test_config.sh"
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -49,12 +50,21 @@ bash -n \
     "$discovery_test" \
     "$launch_test" \
     "$adapter_test" \
+    "$config_test" \
     "${BASH_SOURCE[0]}"
 
 test_dir="$(mktemp -d)"
 original_home="${HOME-}"
 original_xdg_config_home="${XDG_CONFIG_HOME-}"
 original_path="$PATH"
+original_aagent_provider="${AAGENT_PROVIDER-}"
+original_aagent_provider_set="${AAGENT_PROVIDER+x}"
+original_aagent_auth_policy="${AAGENT_AUTH_POLICY-}"
+original_aagent_auth_policy_set="${AAGENT_AUTH_POLICY+x}"
+original_aagent_priority="${AAGENT_PRIORITY-}"
+original_aagent_priority_set="${AAGENT_PRIORITY+x}"
+original_aagent_allow_local="${AAGENT_ALLOW_LOCAL-}"
+original_aagent_allow_local_set="${AAGENT_ALLOW_LOCAL+x}"
 
 cleanup() {
     export HOME="$original_home"
@@ -64,6 +74,10 @@ cleanup() {
         unset XDG_CONFIG_HOME
     fi
     export PATH="$original_path"
+    if [[ -n "$original_aagent_provider_set" ]]; then export AAGENT_PROVIDER="$original_aagent_provider"; else unset AAGENT_PROVIDER; fi
+    if [[ -n "$original_aagent_auth_policy_set" ]]; then export AAGENT_AUTH_POLICY="$original_aagent_auth_policy"; else unset AAGENT_AUTH_POLICY; fi
+    if [[ -n "$original_aagent_priority_set" ]]; then export AAGENT_PRIORITY="$original_aagent_priority"; else unset AAGENT_PRIORITY; fi
+    if [[ -n "$original_aagent_allow_local_set" ]]; then export AAGENT_ALLOW_LOCAL="$original_aagent_allow_local"; else unset AAGENT_ALLOW_LOCAL; fi
     rm -rf "$test_dir"
 }
 trap cleanup EXIT
@@ -75,6 +89,7 @@ record_dir="$test_dir/records"
 work_dir="$test_dir/work"
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$fake_bin" "$record_dir" "$work_dir"
 export PATH="$fake_bin:$original_path"
+unset AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
 
 tier_one_providers=(claude codex opencode amp gemini)
 for provider in "${tier_one_providers[@]}"; do
@@ -200,5 +215,6 @@ bash "$parser_test"
 bash "$discovery_test"
 bash "$launch_test"
 bash "$adapter_test"
+bash "$config_test"
 
 printf 'All Bash tests passed.\n'

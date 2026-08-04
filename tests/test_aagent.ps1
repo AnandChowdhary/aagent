@@ -8,6 +8,7 @@ $parserTest = Join-Path $projectRoot "tests/test_parser.ps1"
 $discoveryTest = Join-Path $projectRoot "tests/test_discovery.ps1"
 $launchTest = Join-Path $projectRoot "tests/test_launch.ps1"
 $adapterTest = Join-Path $projectRoot "tests/test_adapters.ps1"
+$configTest = Join-Path $projectRoot "tests/test_config.ps1"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 function Assert-Equal($Actual, $Expected, [string] $Message) {
@@ -96,6 +97,7 @@ Assert-PowerShellSyntax $parserTest
 Assert-PowerShellSyntax $discoveryTest
 Assert-PowerShellSyntax $launchTest
 Assert-PowerShellSyntax $adapterTest
+Assert-PowerShellSyntax $configTest
 Assert-PowerShellSyntax $PSCommandPath
 
 $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-tests-" + [guid]::NewGuid().ToString("N"))
@@ -120,7 +122,11 @@ $environmentNames = @(
     "ANTHROPIC_API_KEY",
     "CODEX_API_KEY",
     "AAGENT_SOURCE",
-    "INSTALL_DIR"
+    "INSTALL_DIR",
+    "AAGENT_PROVIDER",
+    "AAGENT_AUTH_POLICY",
+    "AAGENT_PRIORITY",
+    "AAGENT_ALLOW_LOCAL"
 )
 
 foreach ($name in $environmentNames) {
@@ -152,6 +158,8 @@ try {
     $env:XDG_CONFIG_HOME = $configDir
     $env:APPDATA = $appDataDir
     $env:PATH = "$fakeBin$([IO.Path]::PathSeparator)$($originalEnvironment['PATH'])"
+    Remove-Item Env:AAGENT_PROVIDER, Env:AAGENT_AUTH_POLICY, Env:AAGENT_PRIORITY, Env:AAGENT_ALLOW_LOCAL `
+        -ErrorAction SilentlyContinue
 
     $tierOneProviders = @("claude", "codex", "opencode", "amp", "gemini")
     foreach ($provider in $tierOneProviders) {
@@ -287,6 +295,7 @@ try {
     & $discoveryTest
     & $launchTest
     & $adapterTest
+    & $configTest
 } finally {
     foreach ($name in $environmentNames) {
         $originalValue = $originalEnvironment[$name]

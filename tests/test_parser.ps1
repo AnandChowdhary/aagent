@@ -90,6 +90,8 @@ try {
         "--model", "sonnet",
         "-C", $workDir,
         "--auth-policy", "native",
+        "--priority", "claude,codex",
+        "--allow-local", "true",
         "--dry-run",
         "--quiet",
         "say", "hello",
@@ -101,6 +103,8 @@ try {
     Assert-ParserEqual $result.Provider "claude" "Provider differs."
     Assert-ParserEqual $result.Model "sonnet" "Model differs."
     Assert-ParserEqual $result.AuthPolicy "native" "Auth policy differs."
+    Assert-ParserEqual $result.Priority "claude,codex" "Priority differs."
+    Assert-ParserEqual $result.AllowLocal "true" "Allow-local differs."
     Assert-ParserEqual $result.DryRun $true "Dry-run flag differs."
     Assert-ParserEqual $result.Quiet $true "Quiet flag differs."
     Assert-ParserEqual $result.Cwd (Resolve-Path -LiteralPath $workDir).ProviderPath "Resolved cwd differs."
@@ -144,6 +148,9 @@ try {
     Assert-ParserError "option --cwd requires a value" @("--cwd")
     Assert-ParserError "option --auth-policy requires a value" @("--auth-policy")
     Assert-ParserError "invalid authentication policy: cheapest" @("--auth-policy", "cheapest", "prompt")
+    Assert-ParserError "option --priority requires a value" @("--priority")
+    Assert-ParserError "option --allow-local requires a value" @("--allow-local")
+    Assert-ParserError "invalid --allow-local value" @("--allow-local", "yes", "prompt")
     Assert-ParserError "providers does not accept arguments" @("providers", "extra")
     Assert-ParserError "doctor accepts at most one provider" @("doctor", "claude", "extra")
     Assert-ParserError "unknown option: --bad" @("doctor", "--bad")
@@ -217,6 +224,12 @@ try {
     }
     if (-not $processResult.Stdout.Contains("--auth-policy")) {
         throw "Public help omits auth policy."
+    }
+    if (-not $processResult.Stdout.Contains("--priority")) {
+        throw "Public help omits priority."
+    }
+    if (-not $processResult.Stdout.Contains("--allow-local")) {
+        throw "Public help omits allow-local."
     }
 
     $processResult = Invoke-AagentProcess -Arguments @("--version") -Stdin "" -WorkingDirectory $workDir
