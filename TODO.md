@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: Phase 1 complete; Phase 2 next
+Current milestone: Phase 2 complete; Phase 3 next
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -132,59 +132,62 @@ Deliverable: deterministic, credential-free fixtures that both runners can use
 Dependencies: Phase 1
 Deliverable: the complete wrapper grammar without provider selection or launch
 
-- [ ] **P2-01 Implement long and short option parsing.**
+- [x] **P2-01 Implement long and short option parsing.**
   Support `-P/--provider`, `-m/--model`, `-C/--cwd`, `--auth-policy`,
   `--dry-run`, `--quiet`, `-h/--help`, and `--version` in both runners.
 
-- [ ] **P2-02 Implement subcommand recognition.**
+- [x] **P2-02 Implement subcommand recognition.**
   Recognize `providers` and `doctor [PROVIDER]` only in command position while
   allowing those words inside ordinary prompts.
 
-- [ ] **P2-03 Implement the native-option separator.**
+- [x] **P2-03 Implement the native-option separator.**
   Preserve every argument after the first wrapper-level `--` exactly and stop
   wrapper option parsing at that point.
 
-- [ ] **P2-04 Reject unknown or incomplete wrapper options.**
+- [x] **P2-04 Reject unknown or incomplete wrapper options.**
   Missing option values, unknown options before `--`, extra `doctor` arguments,
   and invalid auth policies exit `64` without launching or probing a provider.
 
-- [ ] **P2-05 Join positional prompt arguments.**
+- [x] **P2-05 Join positional prompt arguments.**
   Join prompt words with exactly one ASCII space while preserving the contents
   of each shell-parsed argument, including embedded newlines.
 
-- [ ] **P2-06 Resolve stdin-only prompts.**
+- [x] **P2-06 Resolve stdin-only prompts.**
   When there are no prompt arguments and stdin is non-terminal, capture or
   forward stdin as the prompt without opening an interactive provider UI.
 
-- [ ] **P2-07 Represent prompt-plus-stdin separately.**
+- [x] **P2-07 Represent prompt-plus-stdin separately.**
   Preserve positional instruction and piped context as distinct internal
   values so each adapter can apply its documented behavior.
 
-- [ ] **P2-08 Reject missing and empty input.**
+- [x] **P2-08 Reject missing and empty input.**
   No prompt plus terminal stdin, an explicit empty prompt, or empty piped input
   exits `64` with concise usage on stderr.
 
-- [ ] **P2-09 Validate `--cwd` before any probe.**
+- [x] **P2-09 Validate `--cwd` before any probe.**
   Require an existing directory, resolve it without executing user input, and
   return `64` for invalid paths.
 
-- [ ] **P2-10 Make help the public contract.**
+- [x] **P2-10 Make help the public contract.**
   Update both help outputs to match `docs/spec/cli-contract.md`, including
   subcommands, options, stdin behavior, `--`, and representative examples.
 
-- [ ] **P2-11 Add parser injection cases.**
+- [x] **P2-11 Add parser injection cases.**
   Cover spaces, single and double quotes, glob characters, leading dashes,
   semicolons, pipes, redirections, backticks, `$()` text, PowerShell
   subexpressions, CRLF, newlines, tabs, Unicode, and a literal `--`.
 
-- [ ] **P2-12 Verify parsing has no side effects.**
+- [x] **P2-12 Verify parsing has no side effects.**
   All parser error and help/version cases must prove zero discovery probes and
   zero provider run launches.
 
 ### Phase 2 exit gate
 
-- [ ] A parser fixture produces the same logical parse record in Bash and
+- [x] A parser fixture produces the same logical parse record in Bash and
   PowerShell for every valid and invalid CLI example in the specification.
+
+  Evidence: [PR #2](https://github.com/AnandChowdhary/aagent/pull/2) and
+  [cross-platform CI run 30948205134](https://github.com/AnandChowdhary/aagent/actions/runs/30948205134).
 
 ## Phase 3 - Adapter registry and executable discovery
 
