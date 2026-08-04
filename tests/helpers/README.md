@@ -11,7 +11,7 @@ a separate `run.count` or `probe.count` file.
 Record protocol version 1 contains:
 
 - UTF-8 hexadecimal provider ID and working directory;
-- invocation kind and argument count;
+- invocation kind, child process ID, and argument count;
 - one UTF-8 hexadecimal field per argument;
 - exact stdin bytes as hexadecimal;
 - presence or absence for names in `AAGENT_FAKE_ENV_PRESENCE`; and
@@ -31,3 +31,7 @@ for Claude, Codex, and OpenCode are recognized automatically.
 This protocol supports valid, missing-field, malformed, delayed, non-zero,
 secret-bearing, and PII-bearing probe fixtures while keeping probe counts
 separate from actual run counts.
+
+The process ID is test-only lifecycle metadata. Launch tests use it to prove a
+terminated fake provider is not left running; production diagnostics never
+expose provider process IDs.

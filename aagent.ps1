@@ -199,6 +199,218 @@ function Get-AagentDiscovery {
     return $results
 }
 
+function Test-AagentEnvironmentName([string] $Name) {
+    return $Name -cmatch "^[A-Za-z_][A-Za-z0-9_]*$"
+}
+
+function New-AagentLaunchPlan {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Executable,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [AllowEmptyString()]
+        [string[]] $Arguments,
+        [Parameter(Mandatory = $true)]
+        [string] $WorkingDirectory,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("inherit", "closed", "data")]
+        [string] $StdinMode,
+        [AllowEmptyString()]
+        [string] $Stdin = "",
+        [ValidateSet("argv", "stdin", "both", "none")]
+        [string] $InputDescription = "none"
+    )
+
+    if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) {
+        throw "launch executable is unavailable: $Executable"
+    }
+    if (-not (Test-Path -LiteralPath $WorkingDirectory -PathType Container)) {
+        throw "launch working directory is unavailable: $WorkingDirectory"
+    }
+
+    $resolvedExecutable = (Resolve-Path -LiteralPath $Executable -ErrorAction Stop).ProviderPath
+    $resolvedWorkingDirectory = (Resolve-Path -LiteralPath $WorkingDirectory -ErrorAction Stop).ProviderPath
+    $displayArguments = [Collections.Generic.List[string]]::new()
+    foreach ($argument in $Arguments) {
+        $displayArguments.Add("<redacted>")
+    }
+
+    return [pscustomobject] @{
+        Executable = $resolvedExecutable
+        Arguments = [string[]] $Arguments
+        WorkingDirectory = $resolvedWorkingDirectory
+        StdinMode = $StdinMode
+        Stdin = $Stdin
+        InputDescription = $InputDescription
+        EnvironmentSet = [ordered] @{}
+        EnvironmentUnset = [Collections.Generic.List[string]]::new()
+        DisplayArguments = $displayArguments
+        Provider = ""
+        Reason = ""
+        Notice = ""
+    }
+}
+
+function Set-AagentLaunchEnvironment($Plan, [string] $Name, [AllowEmptyString()][string] $Value) {
+    if (-not (Test-AagentEnvironmentName $Name)) {
+        throw "invalid child environment name: $Name"
+    }
+    $Plan.EnvironmentSet[$Name] = $Value
+}
+
+function Remove-AagentLaunchEnvironment($Plan, [string] $Name) {
+    if (-not (Test-AagentEnvironmentName $Name)) {
+        throw "invalid child environment name: $Name"
+    }
+    $Plan.EnvironmentUnset.Add($Name)
+}
+
+function Set-AagentLaunchDisplayArguments($Plan, [string[]] $Arguments) {
+    if ($Arguments.Count -ne $Plan.Arguments.Count) {
+        throw "launch display argument count differs from argv"
+    }
+    $Plan.DisplayArguments.Clear()
+    foreach ($argument in $Arguments) {
+        $Plan.DisplayArguments.Add($argument)
+    }
+}
+
+function ConvertTo-AagentDisplayArgument([AllowEmptyString()][string] $Value) {
+    return "'$($Value.Replace("'", "''"))'"
+}
+
+function Show-AagentEnvironmentNames([string] $Label, [string[]] $Names) {
+    if ($Names.Count -eq 0) {
+        [Console]::Out.WriteLine("${Label}: (none)")
+    } else {
+        [Console]::Out.WriteLine("${Label}: $($Names -join ' ')")
+    }
+}
+
+function Show-AagentLaunchPlan($Plan) {
+    $provider = if ([string]::IsNullOrEmpty($Plan.Provider)) { "unknown" } else { $Plan.Provider }
+    $reason = if ([string]::IsNullOrEmpty($Plan.Reason)) { "not specified" } else { $Plan.Reason }
+    $command = [Collections.Generic.List[string]]::new()
+    $command.Add((ConvertTo-AagentDisplayArgument $Plan.Executable))
+    foreach ($argument in $Plan.DisplayArguments) {
+        $command.Add((ConvertTo-AagentDisplayArgument $argument))
+    }
+
+    [Console]::Out.WriteLine("provider: $provider")
+    [Console]::Out.WriteLine("reason: $reason")
+    [Console]::Out.WriteLine("command: $($command -join ' ')")
+    [Console]::Out.WriteLine("working directory: $(ConvertTo-AagentDisplayArgument $Plan.WorkingDirectory)")
+    [Console]::Out.WriteLine("stdin: $($Plan.InputDescription)")
+    Show-AagentEnvironmentNames "set environment" ([string[]] $Plan.EnvironmentSet.Keys)
+    Show-AagentEnvironmentNames "unset environment" ([string[]] $Plan.EnvironmentUnset)
+}
+
+function Write-AagentNotice([bool] $Quiet, [string] $Message) {
+    if (-not $Quiet -and -not [string]::IsNullOrEmpty($Message)) {
+        [Console]::Error.WriteLine("aagent: $Message")
+    }
+}
+
+function Get-AagentLaunchCommand($Plan) {
+    $arguments = [Collections.Generic.List[string]]::new()
+    $extension = [IO.Path]::GetExtension($Plan.Executable)
+
+    if ([string]::Equals($extension, ".ps1", [StringComparison]::OrdinalIgnoreCase)) {
+        $hostExecutable = (Get-Process -Id $PID).Path
+        $arguments.Add("-NoProfile")
+        $arguments.Add("-File")
+        $arguments.Add($Plan.Executable)
+        foreach ($argument in $Plan.Arguments) {
+            $arguments.Add($argument)
+        }
+        return [pscustomobject] @{
+            Executable = $hostExecutable
+            Arguments = $arguments
+        }
+    }
+
+    if ($IsWindows -and $extension -in @(".cmd", ".bat")) {
+        throw "batch launch is unsafe for untrusted arguments; install or select the PowerShell or executable shim"
+    }
+
+    foreach ($argument in $Plan.Arguments) {
+        $arguments.Add($argument)
+    }
+    return [pscustomobject] @{
+        Executable = $Plan.Executable
+        Arguments = $arguments
+    }
+}
+
+function Invoke-AagentLaunchPlan {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Plan,
+        [switch] $DryRun,
+        [switch] $Quiet
+    )
+
+    if ($DryRun) {
+        Show-AagentLaunchPlan $Plan
+        return $AagentExitOk
+    }
+
+    Write-AagentNotice -Quiet:$Quiet -Message $Plan.Notice
+
+    $process = $null
+    try {
+        $command = Get-AagentLaunchCommand $Plan
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $command.Executable
+        $startInfo.UseShellExecute = $false
+        $startInfo.WorkingDirectory = $Plan.WorkingDirectory
+        foreach ($argument in $command.Arguments) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+
+        foreach ($name in $Plan.EnvironmentUnset) {
+            $startInfo.Environment.Remove($name) | Out-Null
+        }
+        foreach ($entry in $Plan.EnvironmentSet.GetEnumerator()) {
+            $startInfo.Environment[$entry.Key] = $entry.Value
+        }
+
+        if ($Plan.StdinMode -in @("closed", "data")) {
+            $startInfo.RedirectStandardInput = $true
+            $startInfo.StandardInputEncoding = [Text.UTF8Encoding]::new($false)
+        }
+
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            [Console]::Error.WriteLine("aagent: could not start provider process")
+            return $AagentExitSoftware
+        }
+
+        if ($Plan.StdinMode -eq "data") {
+            $process.StandardInput.Write($Plan.Stdin)
+        }
+        if ($Plan.StdinMode -in @("closed", "data")) {
+            $process.StandardInput.Close()
+        }
+
+        $process.WaitForExit()
+        return $process.ExitCode
+    } catch {
+        if ($null -ne $process -and -not $process.HasExited) {
+            $process.Kill($true)
+            $process.WaitForExit()
+        }
+        [Console]::Error.WriteLine("aagent: provider launch failed: $($_.Exception.Message)")
+        return $AagentExitSoftware
+    } finally {
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
+    }
+}
+
 function Show-AagentHelp {
     @'
 aagent

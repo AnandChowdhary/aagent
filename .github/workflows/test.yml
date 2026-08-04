@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
 
-      - name: Run Bash tests
+      - name: Run Bash suite, including launch contracts
         shell: bash
         run: bash ./tests/test_aagent.sh
 
@@ -33,6 +33,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
 
-      - name: Run PowerShell tests
+      - name: Run PowerShell suite, including launch contracts
         shell: pwsh
         run: ./tests/test_aagent.ps1
