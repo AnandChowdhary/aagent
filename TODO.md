@@ -633,6 +633,9 @@ Deliverable: narrowly scoped cost-saving overrides without parent mutation
   and Codex, all native-policy cases are untouched, parent values survive, and
   no output contains a seeded credential value.
 
+  Evidence: [PR #9](https://github.com/AnandChowdhary/aagent/pull/9) and
+  [cross-platform CI run 30961449062](https://github.com/AnandChowdhary/aagent/actions/runs/30961449062).
+
 ## Phase 10 - Introspection and security hardening
 
 Dependencies: Phases 3 through 9
