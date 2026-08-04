@@ -933,6 +933,186 @@ function Invoke-AagentProviderProbe([string] $Provider, [string] $Executable = "
     }
 }
 
+function Get-AagentReadinessScore([string] $Readiness) {
+    switch ($Readiness) {
+        "ready" { return 2 }
+        "unknown" { return 1 }
+        "unusable" { return 0 }
+        default { return -1 }
+    }
+}
+
+function Get-AagentFundingScore([string] $FundingClass) {
+    switch ($FundingClass) {
+        "included_confirmed" { return 6 }
+        "included_account" { return 5 }
+        "prepaid_credits" { return 4 }
+        "local" { return 3 }
+        "payg_byok" { return 2 }
+        "unknown" { return 1 }
+        default { return 0 }
+    }
+}
+
+function Get-AagentPriorityPosition([string] $Provider, [string] $Priority) {
+    if ([string]::IsNullOrWhiteSpace($Priority)) { return 0 }
+    $position = 0
+    foreach ($item in ($Priority -split ",")) {
+        $position++
+        if ($item.Trim() -ceq $Provider) { return $position }
+    }
+    return 0
+}
+
+function New-AagentSelectionCandidate {
+    param(
+        $Adapter,
+        [string] $Path,
+        $Probe,
+        [string] $Priority,
+        [bool] $AllowLocal
+    )
+
+    $readinessScore = Get-AagentReadinessScore $Probe.Readiness
+    $fundingScore = Get-AagentFundingScore $Probe.FundingClass
+    $priorityPosition = Get-AagentPriorityPosition $Adapter.Id $Priority
+    $priorityScore = if ($priorityPosition -gt 0) { 1000 - $priorityPosition } else { 0 }
+    $eligible = $true
+    $exclusion = ""
+    if ($Probe.Readiness -eq "unusable") {
+        $eligible = $false
+        $exclusion = "unusable_authentication"
+    } elseif ($Probe.FundingClass -eq "local" -and -not $AllowLocal) {
+        $eligible = $false
+        $exclusion = "local_not_allowed"
+    } elseif (
+        $readinessScore -lt 0 -or $fundingScore -lt 1 -or
+        $Probe.ConfidenceRank -lt 0 -or $Probe.ConfidenceRank -gt 4
+    ) {
+        $eligible = $false
+        $exclusion = "invalid_probe_record"
+    }
+
+    return [pscustomobject] @{
+        Adapter = $Adapter
+        Provider = $Adapter.Id
+        Path = $Path
+        Readiness = $Probe.Readiness
+        FundingClass = $Probe.FundingClass
+        ConfidenceRank = [int] $Probe.ConfidenceRank
+        PlanLabel = $Probe.PlanLabel
+        ProbeReason = $Probe.ReasonCode
+        PriorityPosition = $priorityPosition
+        PopularityPosition = [int] $Adapter.Popularity
+        RegistryPosition = [int] $Adapter.RegistryOrder
+        ReadinessScore = $readinessScore
+        FundingScore = $fundingScore
+        PriorityScore = $priorityScore
+        PopularityScore = 1000 - [int] $Adapter.Popularity
+        RegistryScore = 1000 - [int] $Adapter.RegistryOrder
+        Eligible = $eligible
+        Exclusion = $exclusion
+    }
+}
+
+function Compare-AagentSelectionCandidates($Left, $Right) {
+    $fields = @(
+        @("ReadinessScore", "readiness"),
+        @("FundingScore", "funding_class"),
+        @("ConfidenceRank", "authentication_confidence"),
+        @("PriorityScore", "configured_priority"),
+        @("PopularityScore", "popularity_prior"),
+        @("RegistryScore", "stable_registry_order")
+    )
+    foreach ($field in $fields) {
+        $leftValue = [int] $Left.($field[0])
+        $rightValue = [int] $Right.($field[0])
+        if ($leftValue -gt $rightValue) {
+            return [pscustomobject] @{ Order = 1; Field = $field[1] }
+        }
+        if ($leftValue -lt $rightValue) {
+            return [pscustomobject] @{ Order = -1; Field = $field[1] }
+        }
+    }
+    return [pscustomobject] @{ Order = 0; Field = "stable_registry_order" }
+}
+
+function Get-AagentBestSelectionCandidate([object[]] $Candidates, $Excluded = $null) {
+    $best = $null
+    foreach ($candidate in $Candidates) {
+        if (-not $candidate.Eligible -or [object]::ReferenceEquals($candidate, $Excluded)) { continue }
+        if ($null -eq $best -or (Compare-AagentSelectionCandidates $candidate $best).Order -gt 0) {
+            $best = $candidate
+        }
+    }
+    return $best
+}
+
+function Select-AagentCandidates([object[]] $Candidates) {
+    $winner = Get-AagentBestSelectionCandidate $Candidates
+    $eligibleCount = @($Candidates | Where-Object Eligible).Count
+    if ($null -eq $winner) {
+        return [pscustomobject] @{
+            Candidates = $Candidates
+            EligibleCount = 0
+            Winner = $null
+            RunnerUp = $null
+            ReasonCode = ""
+            ReasonDisplay = ""
+            Notice = ""
+        }
+    }
+
+    $runnerUp = Get-AagentBestSelectionCandidate $Candidates $winner
+    if ($null -eq $runnerUp) {
+        $reasonCode = "only_candidate"
+        $reasonDisplay = "only eligible provider"
+    } else {
+        $comparison = Compare-AagentSelectionCandidates $winner $runnerUp
+        $reasonCode = $comparison.Field
+        $reasonDisplay = switch ($reasonCode) {
+            "readiness" { "higher readiness ($($winner.Readiness))" }
+            "funding_class" { "higher funding class ($($winner.FundingClass))" }
+            "authentication_confidence" { "authentication confidence $($winner.ConfidenceRank)" }
+            "configured_priority" { "configured priority #$($winner.PriorityPosition)" }
+            "popularity_prior" { "popularity #$($winner.PopularityPosition)" }
+            "stable_registry_order" { "registry order #$($winner.RegistryPosition)" }
+        }
+    }
+    $details = $winner.FundingClass
+    if (-not [string]::IsNullOrEmpty($winner.PlanLabel) -and $winner.PlanLabel -ne "Unknown") {
+        $details = "$details, $($winner.PlanLabel)"
+    }
+    return [pscustomobject] @{
+        Candidates = $Candidates
+        EligibleCount = $eligibleCount
+        Winner = $winner
+        RunnerUp = $runnerUp
+        ReasonCode = $reasonCode
+        ReasonDisplay = $reasonDisplay
+        Notice = "using $($winner.Provider) ($details; $reasonDisplay)"
+    }
+}
+
+function Get-AagentAutomaticSelection($Result) {
+    $candidates = [Collections.Generic.List[object]]::new()
+    $discovery = @(Get-AagentDiscovery)
+    foreach ($item in $discovery) {
+        if ($item.Status -ne "installed") { continue }
+        $probe = Invoke-AagentProviderProbe $item.Id $item.Path
+        $candidate = New-AagentSelectionCandidate `
+            -Adapter $item.Adapter `
+            -Path $item.Path `
+            -Probe $probe `
+            -Priority $Result.Priority `
+            -AllowLocal:($Result.AllowLocal -eq "true")
+        $candidates.Add($candidate)
+    }
+    $selection = Select-AagentCandidates ([object[]] $candidates)
+    $selection | Add-Member -NotePropertyName InstalledCount -NotePropertyValue $candidates.Count
+    return $selection
+}
+
 function Resolve-AagentPhysicalPath([string] $Path) {
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     $isLink = -not [string]::IsNullOrEmpty($item.LinkType)
@@ -1447,10 +1627,6 @@ function Invoke-AagentExplicitProvider($Result) {
         Write-AagentUsageError "unknown provider: $($Result.Provider)"
         return $AagentExitUsage
     }
-    if ($adapter.Tier -ne "tier1") {
-        Write-AagentUsageError "provider adapter is not implemented: $($Result.Provider)"
-        return $AagentExitUsage
-    }
 
     $target = Resolve-AagentDiscoveryTarget $adapter
     if (-not $target.Found) {
@@ -1458,6 +1634,10 @@ function Invoke-AagentExplicitProvider($Result) {
             "aagent: provider $($Result.Provider) selected via $($Result.ProviderSourceLabel) is unavailable: $($target.Reason)"
         )
         return $AagentExitUnavailable
+    }
+    if ($adapter.Tier -ne "tier1") {
+        Write-AagentUsageError "provider adapter is not implemented: $($Result.Provider)"
+        return $AagentExitUsage
     }
 
     $build = New-AagentAdapterLaunchPlan $Result $adapter $target.Path
@@ -1470,6 +1650,36 @@ function Invoke-AagentExplicitProvider($Result) {
         return $build.Status
     }
 
+    return Invoke-AagentLaunchPlan -Plan $build.Plan -DryRun:$Result.DryRun -Quiet:$Result.Quiet
+}
+
+function Invoke-AagentAutomaticProvider($Result) {
+    $selection = Get-AagentAutomaticSelection $Result
+    if ($null -eq $selection.Winner) {
+        if ($selection.InstalledCount -eq 0) {
+            [Console]::Error.WriteLine(
+                "aagent: no supported coding agent is installed; install a Tier 1 provider or use --provider ID"
+            )
+        } else {
+            [Console]::Error.WriteLine(
+                "aagent: no installed provider is eligible for automatic selection; use --provider ID or adjust configuration"
+            )
+        }
+        return $AagentExitUnavailable
+    }
+
+    $build = New-AagentAdapterLaunchPlan $Result $selection.Winner.Adapter $selection.Winner.Path
+    if ($build.Status -ne $AagentExitOk) {
+        if ($build.Status -eq $AagentExitUsage) {
+            Write-AagentUsageError $build.Error
+        } elseif (-not [string]::IsNullOrEmpty($build.Error)) {
+            [Console]::Error.WriteLine("aagent: $($build.Error)")
+        }
+        return $build.Status
+    }
+
+    $build.Plan.Reason = "$($selection.ReasonCode) ($($selection.ReasonDisplay))"
+    $build.Plan.Notice = $selection.Notice
     return Invoke-AagentLaunchPlan -Plan $build.Plan -DryRun:$Result.DryRun -Quiet:$Result.Quiet
 }
 
@@ -1794,8 +2004,7 @@ function Invoke-Aagent {
         return Invoke-AagentExplicitProvider $result
     }
 
-    [Console]::Error.WriteLine("aagent: automatic provider selection is not available in this build yet")
-    return $AagentExitUnavailable
+    return Invoke-AagentAutomaticProvider $result
 }
 
 if ($MyInvocation.InvocationName -ne ".") {

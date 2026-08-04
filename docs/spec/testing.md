@@ -32,6 +32,7 @@ console for normal Ctrl-C delivery.
 - no providers installed;
 - exactly one provider installed;
 - several installed providers and the popularity prior;
+- synthetic equal-popularity candidates reaching stable registry order;
 - a less-popular included subscription beating a more-popular pay-as-you-go
   candidate;
 - known-unusable auth being excluded while unknown auth remains a last resort;
@@ -49,6 +50,11 @@ console for normal Ctrl-C delivery.
 - a selected provider that fails authentication, proving no failover occurs;
 - discovery of Cursor's separate `agent` executable; and
 - `--quiet` and `--dry-run` behavior.
+
+The selector is also exercised as a pure table-driven comparison in both
+runners so prepaid and local funding classes, unlisted priority behavior, and
+every decisive tuple field remain testable without adding unsupported provider
+fixtures or credentials.
 
 ## Security tests
 

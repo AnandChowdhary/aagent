@@ -39,6 +39,13 @@ test_dir="$(mktemp -d)"
 original_home="${HOME-}"
 original_xdg_config_home="${XDG_CONFIG_HOME-}"
 original_path="$PATH"
+override_names=(AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_GEMINI_BIN AAGENT_AMP_BIN)
+original_override_values=()
+original_override_sets=()
+for override_name in "${override_names[@]}"; do
+    original_override_values+=("${!override_name-}")
+    original_override_sets+=("${!override_name+x}")
+done
 
 cleanup() {
     export HOME="$original_home"
@@ -48,6 +55,14 @@ cleanup() {
         unset XDG_CONFIG_HOME
     fi
     export PATH="$original_path"
+    for ((override_index = 0; override_index < ${#override_names[@]}; override_index++)); do
+        override_name="${override_names[$override_index]}"
+        if [[ -n "${original_override_sets[$override_index]}" ]]; then
+            export "$override_name=${original_override_values[$override_index]}"
+        else
+            unset "$override_name"
+        fi
+    done
     rm -rf "$test_dir"
 }
 trap cleanup EXIT
@@ -216,6 +231,10 @@ help_output="$(bash "$aagent_script" --help)"
 [[ "$help_output" == *"--allow-local"* ]] || fail "public help omits allow-local"
 assert_equals "$(bash "$aagent_script" --version)" "aagent $AAGENT_VERSION" "public version differs"
 
+for override_name in "${override_names[@]}"; do
+    export "$override_name=$test_dir/missing/${override_name#AAGENT_}"
+done
+
 set +e
 bash "$aagent_script" --unknown >"$test_dir/cli-error.out" 2>&1
 cli_error_status=$?
@@ -231,9 +250,9 @@ set -e
 
 assert_equals "$cli_error_status" "$AAGENT_EXIT_USAGE" "public unknown-option status differs"
 assert_equals "$empty_stdin_status" "$AAGENT_EXIT_USAGE" "public empty-stdin status differs"
-assert_equals "$valid_status" "$AAGENT_EXIT_UNAVAILABLE" "valid parsed input should reach the next unavailable phase"
-assert_equals "$stdin_only_status" "$AAGENT_EXIT_UNAVAILABLE" "stdin-only input should reach the next unavailable phase"
-assert_equals "$both_status" "$AAGENT_EXIT_UNAVAILABLE" "prompt-plus-stdin should reach the next unavailable phase"
+assert_equals "$valid_status" "$AAGENT_EXIT_UNAVAILABLE" "valid parsed input should reach automatic no-provider handling"
+assert_equals "$stdin_only_status" "$AAGENT_EXIT_UNAVAILABLE" "stdin-only input should reach automatic no-provider handling"
+assert_equals "$both_status" "$AAGENT_EXIT_UNAVAILABLE" "prompt-plus-stdin should reach automatic no-provider handling"
 [[ ! -e "$record_dir/run.count" ]] || fail "parser paths launched a provider"
 [[ ! -e "$record_dir/probe.count" ]] || fail "parser paths launched an authentication probe"
 

@@ -12,6 +12,7 @@ launch_test="$project_root/tests/test_launch.sh"
 adapter_test="$project_root/tests/test_adapters.sh"
 config_test="$project_root/tests/test_config.sh"
 probe_test="$project_root/tests/test_probes.sh"
+selection_test="$project_root/tests/test_selection.sh"
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -53,6 +54,7 @@ bash -n \
     "$adapter_test" \
     "$config_test" \
     "$probe_test" \
+    "$selection_test" \
     "${BASH_SOURCE[0]}"
 
 test_dir="$(mktemp -d)"
@@ -219,5 +221,6 @@ bash "$launch_test"
 bash "$adapter_test"
 bash "$config_test"
 bash "$probe_test"
+bash "$selection_test"
 
 printf 'All Bash tests passed.\n'
