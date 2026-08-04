@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: Phase 5 complete; Phase 6 next
+Current milestone: Phase 6 complete; Phase 7 next
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -357,52 +357,55 @@ Deliverable: correct one-shot execution for all five MVP providers
 Dependencies: Phases 2 and 3
 Deliverable: strict, non-executable user configuration with stable precedence
 
-- [ ] **P6-01 Resolve the Unix configuration path.**
+- [x] **P6-01 Resolve the Unix configuration path.**
   Use `${XDG_CONFIG_HOME:-$HOME/.config}/aagent/config` without reading a
   project-local file.
 
-- [ ] **P6-02 Resolve the Windows configuration path.**
+- [x] **P6-02 Resolve the Windows configuration path.**
   Use `%APPDATA%\aagent\config` and define deterministic behavior when
   `APPDATA` is absent.
 
-- [ ] **P6-03 Implement a strict `key=value` parser.**
+- [x] **P6-03 Implement a strict `key=value` parser.**
   Trim surrounding whitespace, ignore blank lines and documented comment
   syntax only, reject malformed lines, and never source or evaluate content.
 
-- [ ] **P6-04 Validate the key allowlist.**
+- [x] **P6-04 Validate the key allowlist.**
   Accept only `provider`, `auth_policy`, `priority`, and `allow_local`; normal
   invocation warns on unknown keys while doctor treats them as configuration
   errors.
 
-- [ ] **P6-05 Validate configuration values.**
+- [x] **P6-05 Validate configuration values.**
   Check provider IDs, auth policy enum, comma-separated priority IDs without
   duplicates, and strict boolean values; invalid known values exit `78`.
 
-- [ ] **P6-06 Apply value precedence.**
+- [x] **P6-06 Apply value precedence.**
   Enforce command line over environment over user config over defaults for
   provider, auth policy, priority, and allow-local.
 
-- [ ] **P6-07 Distinguish explicit provider sources.**
+- [x] **P6-07 Distinguish explicit provider sources.**
   Preserve whether the choice came from CLI, `AAGENT_PROVIDER`, or config so
   diagnostics explain it and a missing explicit provider never falls through.
 
-- [ ] **P6-08 Make priority cost-safe.**
+- [x] **P6-08 Make priority cost-safe.**
   Parse `AAGENT_PRIORITY` and config priority as a tie-break order only; prove
   neither can cross readiness, funding, or confidence boundaries.
 
-- [ ] **P6-09 Add configuration injection tests.**
+- [x] **P6-09 Add configuration injection tests.**
   Include command substitutions, PowerShell expressions, quotes, separators,
   newlines, duplicate keys, very long values, CRLF, and paths with spaces; no
   marker command may execute.
 
-- [ ] **P6-10 Keep configuration diagnostics nonsecret.**
+- [x] **P6-10 Keep configuration diagnostics nonsecret.**
   Report file and line plus key name where safe, but do not echo arbitrary
   values that may contain secrets.
 
 ### Phase 6 exit gate
 
-- [ ] Precedence and invalid-config tables pass identically in both runners,
+- [x] Precedence and invalid-config tables pass identically in both runners,
   with zero provider launches for all configuration failures.
+
+  Evidence: [PR #6](https://github.com/AnandChowdhary/aagent/pull/6) and
+  [cross-platform CI run 30953801910](https://github.com/AnandChowdhary/aagent/actions/runs/30953801910).
 
 ## Phase 7 - Passive authentication probes and funding classification
 
