@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: Phase 6 complete; Phase 7 next
+Current milestone: Phase 7 complete; Phase 8 next
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -412,88 +412,91 @@ Deliverable: strict, non-executable user configuration with stable precedence
 Dependencies: Phases 3 and 6
 Deliverable: safe `readiness`, `funding_class`, confidence, and reason records
 
-- [ ] **P7-01 Define the probe result schema.**
+- [x] **P7-01 Define the probe result schema.**
   Include provider ID, readiness, funding class, confidence rank, safe plan
   label, decisive reason code, shadowing variable names, source, and probe
   status; exclude tokens, email, organization, and raw output.
 
-- [ ] **P7-02 Implement the probe supervisor.**
+- [x] **P7-02 Implement the probe supervisor.**
   Run without TTY, impose a short documented timeout, capture bounded output,
   discard raw responses after allowlist parsing, and degrade all operational or
   schema failures to `unknown`.
 
-- [ ] **P7-03 Enforce the no-network default.**
+- [x] **P7-03 Enforce the no-network default.**
   Use only documented local/passive interfaces during automatic selection;
   any adapter status command known to require a network call must be explicit
   doctor-only or remain `unknown`.
 
-- [ ] **P7-04 Implement Claude status parsing.**
+- [x] **P7-04 Implement Claude status parsing.**
   Call `claude auth status --json`; allowlist only `loggedIn`, `authMethod`,
   `subscriptionType`, `apiProvider`, and `apiKeySource`; tolerate absent or
   changed fields.
 
-- [ ] **P7-05 Classify Claude funding paths.**
+- [x] **P7-05 Classify Claude funding paths.**
   Treat confirmed `claude.ai` subscription access as `included_confirmed`;
   direct API, Console, helper, bearer, gateway, Bedrock, Vertex, and Foundry
   paths are metered or `unknown` according to evidence.
 
-- [ ] **P7-06 Implement Codex app-server account probing.**
+- [x] **P7-06 Implement Codex app-server account probing.**
   Start `codex app-server`, complete its required initialization, call
   `account/read` with `refreshToken:false`, bound the protocol exchange, and
   terminate the probe process cleanly.
 
-- [ ] **P7-07 Implement the Codex fallback probe.**
+- [x] **P7-07 Implement the Codex fallback probe.**
   On unavailable or incompatible app-server protocol, use `codex login status`
   only for readiness; lower confidence and avoid inventing a plan type.
 
-- [ ] **P7-08 Classify Codex funding paths.**
+- [x] **P7-08 Classify Codex funding paths.**
   Treat `account.type=chatgpt` as included with an allowlisted safe `planType`;
   `apiKey` as `payg_byok`; custom providers with
   `requiresOpenaiAuth=false` as `unknown` unless separately documented.
 
-- [ ] **P7-09 Implement OpenCode auth evidence.**
+- [x] **P7-09 Implement OpenCode auth evidence.**
   Parse `opencode auth list` plus only documented nonsecret selected
   provider/model configuration; OAuth alone must not establish included
   funding.
 
-- [ ] **P7-10 Implement Gemini auth evidence.**
+- [x] **P7-10 Implement Gemini auth evidence.**
   Read only documented `security.auth.selectedType`; classify `oauth-personal`
   as `included_account`, API key as metered, and Vertex/ADC as organization
   funded or `unknown` without guessing the Google plan tier.
 
-- [ ] **P7-11 Implement Amp conservative evidence.**
+- [x] **P7-11 Implement Amp conservative evidence.**
   Detect installed/account readiness through stable passive surfaces if
   available; treat `AMP_API_KEY` as an account credential and leave funding
   `unknown` unless a documented passive balance or plan signal exists.
 
-- [ ] **P7-12 Implement environment presence evidence.**
+- [x] **P7-12 Implement environment presence evidence.**
   Check only whether documented variable names exist; never read, transform,
   fingerprint, compare, or log their values.
 
-- [ ] **P7-13 Enforce confidence ceilings.**
+- [x] **P7-13 Enforce confidence ceilings.**
   Machine-readable status may confirm a plan; redacted text/config and
   implementation-detail evidence have lower ranks; variable or file existence
   alone cannot yield `included_confirmed`.
 
-- [ ] **P7-14 Enforce the credential-store boundary.**
+- [x] **P7-14 Enforce the credential-store boundary.**
   Add tests with trap files and fake keychain helpers proving the wrapper never
   opens token files, credential stores, `auth.json`, or `apiKeyHelper`.
 
-- [ ] **P7-15 Redact probe output.**
+- [x] **P7-15 Redact probe output.**
   Seed fake responses with tokens, emails, organization names, unknown nested
   fields, and huge strings; none may appear in stdout, stderr, cache, or test
   snapshots.
 
-- [ ] **P7-16 Test every degradation path.**
+- [x] **P7-16 Test every degradation path.**
   Timeout, executable crash, malformed JSON/text, missing fields, unexpected
   types, protocol mismatch, truncated output, and unsupported versions all
   produce usable `unknown` records without aborting selection.
 
 ### Phase 7 exit gate
 
-- [ ] The full Tier 1 probe matrix classifies safe fixtures correctly, makes no
+- [x] The full Tier 1 probe matrix classifies safe fixtures correctly, makes no
   model request, accesses no credential material, leaks no seeded PII, and
   never turns probe failure into wrapper failure.
+
+  Evidence: [PR #7](https://github.com/AnandChowdhary/aagent/pull/7) and
+  [cross-platform CI run 30956519072](https://github.com/AnandChowdhary/aagent/actions/runs/30956519072).
 
 ## Phase 8 - Deterministic cost-aware selector
 
