@@ -64,6 +64,11 @@ $originalXdg = [Environment]::GetEnvironmentVariable("XDG_CONFIG_HOME", "Process
 $originalAppData = [Environment]::GetEnvironmentVariable("APPDATA", "Process")
 $originalPath = $env:PATH
 $originalRecordDir = [Environment]::GetEnvironmentVariable("AAGENT_FAKE_RECORD_DIR", "Process")
+$overrideNames = @("AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN")
+$originalOverrides = @{}
+foreach ($name in $overrideNames) {
+    $originalOverrides[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+}
 
 try {
     $homeDir = Join-Path $testDir "home"
@@ -235,16 +240,20 @@ try {
     $processResult = Invoke-AagentProcess -Arguments @("--version") -Stdin "" -WorkingDirectory $workDir
     Assert-ParserEqual $processResult.Stdout.Trim() "aagent $AagentVersion" "Public version differs."
 
+    foreach ($name in $overrideNames) {
+        [Environment]::SetEnvironmentVariable($name, (Join-Path $testDir "missing/$name"), "Process")
+    }
+
     $processResult = Invoke-AagentProcess -Arguments @("--unknown") -Stdin "" -WorkingDirectory $workDir
     Assert-ParserEqual $processResult.Status $AagentExitUsage "Public unknown-option status differs."
     $processResult = Invoke-AagentProcess -Arguments @() -Stdin "" -WorkingDirectory $workDir
     Assert-ParserEqual $processResult.Status $AagentExitUsage "Public empty-stdin status differs."
     $processResult = Invoke-AagentProcess -Arguments @("valid prompt") -Stdin "" -WorkingDirectory $workDir
-    Assert-ParserEqual $processResult.Status $AagentExitUnavailable "Valid parsed input should reach the next unavailable phase."
+    Assert-ParserEqual $processResult.Status $AagentExitUnavailable "Valid parsed input should reach automatic no-provider handling."
     $processResult = Invoke-AagentProcess -Arguments @() -Stdin "stdin only`n" -WorkingDirectory $workDir
-    Assert-ParserEqual $processResult.Status $AagentExitUnavailable "Stdin-only input should reach the next unavailable phase."
+    Assert-ParserEqual $processResult.Status $AagentExitUnavailable "Stdin-only input should reach automatic no-provider handling."
     $processResult = Invoke-AagentProcess -Arguments @("instruction") -Stdin "context`n" -WorkingDirectory $workDir
-    Assert-ParserEqual $processResult.Status $AagentExitUnavailable "Prompt-plus-stdin should reach the next unavailable phase."
+    Assert-ParserEqual $processResult.Status $AagentExitUnavailable "Prompt-plus-stdin should reach automatic no-provider handling."
 
     if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) {
         throw "Parser paths launched a provider."
@@ -258,6 +267,9 @@ try {
     [Environment]::SetEnvironmentVariable("APPDATA", $originalAppData, "Process")
     [Environment]::SetEnvironmentVariable("PATH", $originalPath, "Process")
     [Environment]::SetEnvironmentVariable("AAGENT_FAKE_RECORD_DIR", $originalRecordDir, "Process")
+    foreach ($name in $overrideNames) {
+        [Environment]::SetEnvironmentVariable($name, $originalOverrides[$name], "Process")
+    }
     if (Test-Path -LiteralPath $testDir) {
         Remove-Item -LiteralPath $testDir -Recurse -Force
     }

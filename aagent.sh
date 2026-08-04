@@ -1249,6 +1249,268 @@ aagent_probe_provider() {
     esac
 }
 
+aagent_reset_selection() {
+    AAGENT_SELECTION_ADAPTER_INDEXES=()
+    AAGENT_SELECTION_PROVIDER_IDS=()
+    AAGENT_SELECTION_PATHS=()
+    AAGENT_SELECTION_READINESS=()
+    AAGENT_SELECTION_FUNDING_CLASSES=()
+    AAGENT_SELECTION_CONFIDENCE_RANKS=()
+    AAGENT_SELECTION_PLAN_LABELS=()
+    AAGENT_SELECTION_PROBE_REASONS=()
+    AAGENT_SELECTION_PRIORITY_POSITIONS=()
+    AAGENT_SELECTION_POPULARITY_POSITIONS=()
+    AAGENT_SELECTION_REGISTRY_POSITIONS=()
+    AAGENT_SELECTION_READINESS_SCORES=()
+    AAGENT_SELECTION_FUNDING_SCORES=()
+    AAGENT_SELECTION_PRIORITY_SCORES=()
+    AAGENT_SELECTION_POPULARITY_SCORES=()
+    AAGENT_SELECTION_REGISTRY_SCORES=()
+    AAGENT_SELECTION_ELIGIBLE=()
+    AAGENT_SELECTION_EXCLUSIONS=()
+    AAGENT_SELECTION_INSTALLED_COUNT=0
+    AAGENT_SELECTION_ELIGIBLE_COUNT=0
+    AAGENT_SELECTION_WINNER_INDEX=-1
+    AAGENT_SELECTION_RUNNER_UP_INDEX=-1
+    AAGENT_SELECTION_REASON_CODE=""
+    AAGENT_SELECTION_REASON_DISPLAY=""
+    AAGENT_SELECTION_NOTICE=""
+}
+
+aagent_readiness_score() {
+    case "$1" in
+        ready) AAGENT_SELECTION_VALUE_SCORE=2 ;;
+        unknown) AAGENT_SELECTION_VALUE_SCORE=1 ;;
+        unusable) AAGENT_SELECTION_VALUE_SCORE=0 ;;
+        *) AAGENT_SELECTION_VALUE_SCORE=-1 ;;
+    esac
+}
+
+aagent_funding_score() {
+    case "$1" in
+        included_confirmed) AAGENT_SELECTION_VALUE_SCORE=6 ;;
+        included_account) AAGENT_SELECTION_VALUE_SCORE=5 ;;
+        prepaid_credits) AAGENT_SELECTION_VALUE_SCORE=4 ;;
+        local) AAGENT_SELECTION_VALUE_SCORE=3 ;;
+        payg_byok) AAGENT_SELECTION_VALUE_SCORE=2 ;;
+        unknown) AAGENT_SELECTION_VALUE_SCORE=1 ;;
+        *) AAGENT_SELECTION_VALUE_SCORE=0 ;;
+    esac
+}
+
+aagent_configured_priority_position() {
+    local provider="$1"
+    local old_ifs="$IFS"
+    local -a configured=()
+    local item
+    local position=0
+
+    AAGENT_SELECTION_VALUE_POSITION=0
+    [[ -n "$AAGENT_EFFECTIVE_PRIORITY" ]] || return 0
+    IFS=',' read -r -a configured <<<"$AAGENT_EFFECTIVE_PRIORITY"
+    IFS="$old_ifs"
+    for item in "${configured[@]}"; do
+        position=$((position + 1))
+        item="$(aagent_trim_config_whitespace "$item")"
+        if [[ "$item" == "$provider" ]]; then
+            AAGENT_SELECTION_VALUE_POSITION="$position"
+            return 0
+        fi
+    done
+}
+
+aagent_add_selection_candidate() {
+    local adapter_index="$1"
+    local provider="$2"
+    local path="$3"
+    local readiness="$4"
+    local funding="$5"
+    local confidence="$6"
+    local plan_label="$7"
+    local probe_reason="$8"
+    local popularity_position="$9"
+    shift 9
+    local registry_position="$1"
+    local readiness_score funding_score priority_position priority_score
+    local eligible=1 exclusion=""
+
+    aagent_readiness_score "$readiness"
+    readiness_score="$AAGENT_SELECTION_VALUE_SCORE"
+    aagent_funding_score "$funding"
+    funding_score="$AAGENT_SELECTION_VALUE_SCORE"
+    aagent_configured_priority_position "$provider"
+    priority_position="$AAGENT_SELECTION_VALUE_POSITION"
+    if (( priority_position > 0 )); then
+        priority_score=$((1000 - priority_position))
+    else
+        priority_score=0
+    fi
+
+    if [[ "$readiness" == "unusable" ]]; then
+        eligible=0
+        exclusion="unusable_authentication"
+    elif [[ "$funding" == "local" && "$AAGENT_EFFECTIVE_ALLOW_LOCAL" != "true" ]]; then
+        eligible=0
+        exclusion="local_not_allowed"
+    elif (( readiness_score < 0 || funding_score < 1 || confidence < 0 || confidence > 4 )); then
+        eligible=0
+        exclusion="invalid_probe_record"
+    fi
+
+    AAGENT_SELECTION_ADAPTER_INDEXES+=("$adapter_index")
+    AAGENT_SELECTION_PROVIDER_IDS+=("$provider")
+    AAGENT_SELECTION_PATHS+=("$path")
+    AAGENT_SELECTION_READINESS+=("$readiness")
+    AAGENT_SELECTION_FUNDING_CLASSES+=("$funding")
+    AAGENT_SELECTION_CONFIDENCE_RANKS+=("$confidence")
+    AAGENT_SELECTION_PLAN_LABELS+=("$plan_label")
+    AAGENT_SELECTION_PROBE_REASONS+=("$probe_reason")
+    AAGENT_SELECTION_PRIORITY_POSITIONS+=("$priority_position")
+    AAGENT_SELECTION_POPULARITY_POSITIONS+=("$popularity_position")
+    AAGENT_SELECTION_REGISTRY_POSITIONS+=("$registry_position")
+    AAGENT_SELECTION_READINESS_SCORES+=("$readiness_score")
+    AAGENT_SELECTION_FUNDING_SCORES+=("$funding_score")
+    AAGENT_SELECTION_PRIORITY_SCORES+=("$priority_score")
+    AAGENT_SELECTION_POPULARITY_SCORES+=("$((1000 - popularity_position))")
+    AAGENT_SELECTION_REGISTRY_SCORES+=("$((1000 - registry_position))")
+    AAGENT_SELECTION_ELIGIBLE+=("$eligible")
+    AAGENT_SELECTION_EXCLUSIONS+=("$exclusion")
+    AAGENT_SELECTION_INSTALLED_COUNT=$((AAGENT_SELECTION_INSTALLED_COUNT + 1))
+}
+
+aagent_compare_selection_indexes() {
+    local left="$1"
+    local right="$2"
+
+    AAGENT_SELECTION_COMPARISON=0
+    AAGENT_SELECTION_COMPARISON_FIELD="stable_registry_order"
+    if (( AAGENT_SELECTION_READINESS_SCORES[left] != AAGENT_SELECTION_READINESS_SCORES[right] )); then
+        AAGENT_SELECTION_COMPARISON_FIELD="readiness"
+        (( AAGENT_SELECTION_READINESS_SCORES[left] > AAGENT_SELECTION_READINESS_SCORES[right] )) && \
+            AAGENT_SELECTION_COMPARISON=1 || AAGENT_SELECTION_COMPARISON=-1
+    elif (( AAGENT_SELECTION_FUNDING_SCORES[left] != AAGENT_SELECTION_FUNDING_SCORES[right] )); then
+        AAGENT_SELECTION_COMPARISON_FIELD="funding_class"
+        (( AAGENT_SELECTION_FUNDING_SCORES[left] > AAGENT_SELECTION_FUNDING_SCORES[right] )) && \
+            AAGENT_SELECTION_COMPARISON=1 || AAGENT_SELECTION_COMPARISON=-1
+    elif (( AAGENT_SELECTION_CONFIDENCE_RANKS[left] != AAGENT_SELECTION_CONFIDENCE_RANKS[right] )); then
+        AAGENT_SELECTION_COMPARISON_FIELD="authentication_confidence"
+        (( AAGENT_SELECTION_CONFIDENCE_RANKS[left] > AAGENT_SELECTION_CONFIDENCE_RANKS[right] )) && \
+            AAGENT_SELECTION_COMPARISON=1 || AAGENT_SELECTION_COMPARISON=-1
+    elif (( AAGENT_SELECTION_PRIORITY_SCORES[left] != AAGENT_SELECTION_PRIORITY_SCORES[right] )); then
+        AAGENT_SELECTION_COMPARISON_FIELD="configured_priority"
+        (( AAGENT_SELECTION_PRIORITY_SCORES[left] > AAGENT_SELECTION_PRIORITY_SCORES[right] )) && \
+            AAGENT_SELECTION_COMPARISON=1 || AAGENT_SELECTION_COMPARISON=-1
+    elif (( AAGENT_SELECTION_POPULARITY_SCORES[left] != AAGENT_SELECTION_POPULARITY_SCORES[right] )); then
+        AAGENT_SELECTION_COMPARISON_FIELD="popularity_prior"
+        (( AAGENT_SELECTION_POPULARITY_SCORES[left] > AAGENT_SELECTION_POPULARITY_SCORES[right] )) && \
+            AAGENT_SELECTION_COMPARISON=1 || AAGENT_SELECTION_COMPARISON=-1
+    elif (( AAGENT_SELECTION_REGISTRY_SCORES[left] != AAGENT_SELECTION_REGISTRY_SCORES[right] )); then
+        AAGENT_SELECTION_COMPARISON_FIELD="stable_registry_order"
+        (( AAGENT_SELECTION_REGISTRY_SCORES[left] > AAGENT_SELECTION_REGISTRY_SCORES[right] )) && \
+            AAGENT_SELECTION_COMPARISON=1 || AAGENT_SELECTION_COMPARISON=-1
+    fi
+}
+
+aagent_find_best_selection_candidate() {
+    local excluded_index="$1"
+    local index
+    AAGENT_SELECTION_FOUND_INDEX=-1
+    for ((index = 0; index < ${#AAGENT_SELECTION_PROVIDER_IDS[@]}; index++)); do
+        [[ "${AAGENT_SELECTION_ELIGIBLE[$index]}" == "1" ]] || continue
+        (( index != excluded_index )) || continue
+        if (( AAGENT_SELECTION_FOUND_INDEX < 0 )); then
+            AAGENT_SELECTION_FOUND_INDEX="$index"
+            continue
+        fi
+        aagent_compare_selection_indexes "$index" "$AAGENT_SELECTION_FOUND_INDEX"
+        if (( AAGENT_SELECTION_COMPARISON > 0 )); then
+            AAGENT_SELECTION_FOUND_INDEX="$index"
+        fi
+    done
+}
+
+aagent_set_selection_reason() {
+    local winner="$AAGENT_SELECTION_WINNER_INDEX"
+    local runner="$AAGENT_SELECTION_RUNNER_UP_INDEX"
+
+    if (( runner < 0 )); then
+        AAGENT_SELECTION_REASON_CODE="only_candidate"
+        AAGENT_SELECTION_REASON_DISPLAY="only eligible provider"
+        return 0
+    fi
+    aagent_compare_selection_indexes "$winner" "$runner"
+    AAGENT_SELECTION_REASON_CODE="$AAGENT_SELECTION_COMPARISON_FIELD"
+    case "$AAGENT_SELECTION_REASON_CODE" in
+        readiness)
+            AAGENT_SELECTION_REASON_DISPLAY="higher readiness (${AAGENT_SELECTION_READINESS[$winner]})"
+            ;;
+        funding_class)
+            AAGENT_SELECTION_REASON_DISPLAY="higher funding class (${AAGENT_SELECTION_FUNDING_CLASSES[$winner]})"
+            ;;
+        authentication_confidence)
+            AAGENT_SELECTION_REASON_DISPLAY="authentication confidence ${AAGENT_SELECTION_CONFIDENCE_RANKS[$winner]}"
+            ;;
+        configured_priority)
+            AAGENT_SELECTION_REASON_DISPLAY="configured priority #${AAGENT_SELECTION_PRIORITY_POSITIONS[$winner]}"
+            ;;
+        popularity_prior)
+            AAGENT_SELECTION_REASON_DISPLAY="popularity #${AAGENT_SELECTION_POPULARITY_POSITIONS[$winner]}"
+            ;;
+        stable_registry_order)
+            AAGENT_SELECTION_REASON_DISPLAY="registry order #${AAGENT_SELECTION_REGISTRY_POSITIONS[$winner]}"
+            ;;
+    esac
+}
+
+aagent_select_candidates() {
+    local index
+    local details
+
+    AAGENT_SELECTION_ELIGIBLE_COUNT=0
+    for index in "${AAGENT_SELECTION_ELIGIBLE[@]+"${AAGENT_SELECTION_ELIGIBLE[@]}"}"; do
+        [[ "$index" == "1" ]] && AAGENT_SELECTION_ELIGIBLE_COUNT=$((AAGENT_SELECTION_ELIGIBLE_COUNT + 1))
+    done
+    aagent_find_best_selection_candidate -1
+    AAGENT_SELECTION_WINNER_INDEX="$AAGENT_SELECTION_FOUND_INDEX"
+    if (( AAGENT_SELECTION_WINNER_INDEX < 0 )); then
+        return "$AAGENT_EXIT_UNAVAILABLE"
+    fi
+    aagent_find_best_selection_candidate "$AAGENT_SELECTION_WINNER_INDEX"
+    AAGENT_SELECTION_RUNNER_UP_INDEX="$AAGENT_SELECTION_FOUND_INDEX"
+    aagent_set_selection_reason
+
+    index="$AAGENT_SELECTION_WINNER_INDEX"
+    details="${AAGENT_SELECTION_FUNDING_CLASSES[$index]}"
+    if [[ -n "${AAGENT_SELECTION_PLAN_LABELS[$index]}" &&
+        "${AAGENT_SELECTION_PLAN_LABELS[$index]}" != "Unknown" ]]; then
+        details+=", ${AAGENT_SELECTION_PLAN_LABELS[$index]}"
+    fi
+    AAGENT_SELECTION_NOTICE="using ${AAGENT_SELECTION_PROVIDER_IDS[$index]} ($details; $AAGENT_SELECTION_REASON_DISPLAY)"
+}
+
+aagent_build_automatic_candidates() {
+    local index provider
+
+    aagent_discover_adapters
+    aagent_reset_selection
+    for ((index = 0; index < ${#AAGENT_ADAPTER_IDS[@]}; index++)); do
+        [[ "${AAGENT_DISCOVERY_STATUSES[$index]}" == "installed" ]] || continue
+        provider="${AAGENT_ADAPTER_IDS[$index]}"
+        aagent_probe_provider "$provider" "${AAGENT_DISCOVERY_PATHS[$index]}"
+        aagent_add_selection_candidate \
+            "$index" \
+            "$provider" \
+            "${AAGENT_DISCOVERY_PATHS[$index]}" \
+            "$AAGENT_PROBE_READINESS" \
+            "$AAGENT_PROBE_FUNDING_CLASS" \
+            "$AAGENT_PROBE_CONFIDENCE_RANK" \
+            "$AAGENT_PROBE_PLAN_LABEL" \
+            "$AAGENT_PROBE_REASON_CODE" \
+            "${AAGENT_ADAPTER_POPULARITY[$index]}" \
+            "${AAGENT_ADAPTER_REGISTRY_ORDER[$index]}"
+    done
+}
+
 aagent_resolve_discovery_target() {
     local executable="$1"
     local override_name="$2"
@@ -1712,16 +1974,16 @@ aagent_run_explicit_provider() {
         aagent_print_usage_error "unknown provider: $provider"
         return "$AAGENT_EXIT_USAGE"
     fi
-    if [[ "${AAGENT_ADAPTER_TIERS[$index]}" != "tier1" ]]; then
-        aagent_print_usage_error "provider adapter is not implemented: $provider"
-        return "$AAGENT_EXIT_USAGE"
-    fi
     if ! aagent_resolve_discovery_target \
         "${AAGENT_ADAPTER_EXECUTABLES[$index]}" \
         "${AAGENT_ADAPTER_OVERRIDES[$index]}"; then
         printf 'aagent: provider %s selected via %s is unavailable: %s\n' \
             "$provider" "$AAGENT_PROVIDER_SOURCE_LABEL" "$AAGENT_DISCOVERY_REASON" >&2
         return "$AAGENT_EXIT_UNAVAILABLE"
+    fi
+    if [[ "${AAGENT_ADAPTER_TIERS[$index]}" != "tier1" ]]; then
+        aagent_print_usage_error "provider adapter is not implemented: $provider"
+        return "$AAGENT_EXIT_USAGE"
     fi
 
     if aagent_build_adapter_launch_plan \
@@ -1739,6 +2001,45 @@ aagent_run_explicit_provider() {
         return "$status"
     fi
 
+    if aagent_execute_launch_plan "$AAGENT_DRY_RUN" "$AAGENT_QUIET"; then
+        return "$AAGENT_EXIT_OK"
+    else
+        return $?
+    fi
+}
+
+aagent_run_automatic_provider() {
+    local winner adapter_index status
+
+    aagent_build_automatic_candidates
+    if ! aagent_select_candidates; then
+        if (( AAGENT_SELECTION_INSTALLED_COUNT == 0 )); then
+            printf 'aagent: no supported coding agent is installed; install a Tier 1 provider or use --provider ID\n' >&2
+        else
+            printf 'aagent: no installed provider is eligible for automatic selection; use --provider ID or adjust configuration\n' >&2
+        fi
+        return "$AAGENT_EXIT_UNAVAILABLE"
+    fi
+
+    winner="$AAGENT_SELECTION_WINNER_INDEX"
+    adapter_index="${AAGENT_SELECTION_ADAPTER_INDEXES[$winner]}"
+    if aagent_build_adapter_launch_plan \
+        "${AAGENT_SELECTION_PROVIDER_IDS[$winner]}" \
+        "${AAGENT_SELECTION_PATHS[$winner]}" \
+        "${AAGENT_ADAPTER_NAMES[$adapter_index]}"; then
+        :
+    else
+        status=$?
+        if [[ "$status" == "$AAGENT_EXIT_USAGE" ]]; then
+            aagent_print_usage_error "$AAGENT_ADAPTER_ERROR"
+        elif [[ -n "$AAGENT_ADAPTER_ERROR" ]]; then
+            printf 'aagent: %s\n' "$AAGENT_ADAPTER_ERROR" >&2
+        fi
+        return "$status"
+    fi
+
+    AAGENT_LAUNCH_REASON="$AAGENT_SELECTION_REASON_CODE ($AAGENT_SELECTION_REASON_DISPLAY)"
+    AAGENT_LAUNCH_NOTICE="$AAGENT_SELECTION_NOTICE"
     if aagent_execute_launch_plan "$AAGENT_DRY_RUN" "$AAGENT_QUIET"; then
         return "$AAGENT_EXIT_OK"
     else
@@ -2102,8 +2403,7 @@ aagent_main() {
         return "$AAGENT_EXIT_OK"
     fi
 
-    printf 'aagent: automatic provider selection is not available in this build yet\n' >&2
-    return "$AAGENT_EXIT_UNAVAILABLE"
+    aagent_run_automatic_provider
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

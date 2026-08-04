@@ -39,6 +39,10 @@ This protocol supports valid, missing-field, malformed, delayed, non-zero,
 secret-bearing, and PII-bearing probe fixtures while keeping probe counts
 separate from actual run counts.
 
+The selection suites combine these responses into isolated multi-provider
+matrices. They verify the complete ranking tuple and then confirm through the
+recorded `run` file that only the selected provider received the prompt.
+
 The process ID is test-only lifecycle metadata. Launch tests use it to prove a
 terminated fake provider is not left running; production diagnostics never
 expose provider process IDs.

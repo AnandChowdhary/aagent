@@ -64,8 +64,9 @@ credential source with the selected provider/model configuration.
 Authentication confidence, highest first, is:
 
 1. a documented machine-readable status or account interface;
-2. a documented redacted text status or nonsecret configuration field;
-3. a current official implementation detail with tolerant parsing;
+2. a machine-readable current official implementation detail with tolerant
+   parsing;
+3. a documented redacted text status;
 4. environment-variable presence or credential-file existence only.
 
 Low-confidence evidence cannot establish `included_confirmed`; it falls back to
@@ -86,6 +87,22 @@ Required outcomes include:
 within the same readiness, funding, and confidence class. It does not override
 any of those boundaries. Users who want an unconditional choice use
 `--provider`, `AAGENT_PROVIDER`, or the `provider` config key.
+
+For deterministic comparison, `ready` and `unknown` normalize to descending
+scores `2` and `1`; unusable candidates are excluded. Funding classes normalize
+to descending scores `6` through `1` in the table order above. Authentication
+uses the concrete `4` through `0` ranks in [probes.md](probes.md). Earlier
+configured priority entries outrank later entries, and every listed provider
+outranks every unlisted provider; unlisted providers tie on this field. Lower
+numeric popularity and registry positions normalize to higher comparison
+scores. No runtime network metric, wall-clock value, previous result, usage
+history, or cached quota is part of the tuple.
+
+The winner is compared with the runner-up to identify the first different
+field. The stable reason codes are `only_candidate`, `readiness`,
+`funding_class`, `authentication_confidence`, `configured_priority`,
+`popularity_prior`, and `stable_registry_order`. Display strings contain only
+fixed wording, safe enum values, and documented numeric positions.
 
 ## Popularity prior
 

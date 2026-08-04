@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: Phase 7 complete; Phase 8 next
+Current milestone: Phase 8 complete; Phase 9 next
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -503,75 +503,78 @@ Deliverable: safe `readiness`, `funding_class`, confidence, and reason records
 Dependencies: Phases 6 and 7
 Deliverable: the exact lexicographic selection formula and explainable result
 
-- [ ] **P8-01 Encode ordered readiness ranks.**
+- [x] **P8-01 Encode ordered readiness ranks.**
   `ready` outranks `unknown`; `unusable` is excluded from automatic selection
   but retained for diagnostics.
 
-- [ ] **P8-02 Encode ordered funding ranks.**
+- [x] **P8-02 Encode ordered funding ranks.**
   Implement `included_confirmed`, `included_account`, `prepaid_credits`, opt-in
   `local`, `payg_byok`, and `unknown` in the documented order.
 
-- [ ] **P8-03 Gate local providers.**
+- [x] **P8-03 Gate local providers.**
   Exclude the `local` class unless effective `allow_local=true`; do not equate
   local execution with zero machine cost or acceptable quality.
 
-- [ ] **P8-04 Encode authentication confidence ranks.**
+- [x] **P8-04 Encode authentication confidence ranks.**
   Make confidence a tie-breaker only after readiness and funding, preserving
   the ceiling rules from Phase 7.
 
-- [ ] **P8-05 Apply configured priority.**
+- [x] **P8-05 Apply configured priority.**
   Rank listed providers in user order within equal earlier fields; assign a
   deterministic position to unlisted providers.
 
-- [ ] **P8-06 Apply the frozen popularity prior.**
+- [x] **P8-06 Apply the frozen popularity prior.**
   Use the build-time order only after cost, readiness, confidence, and user
   priority; never query current metrics during a run.
 
-- [ ] **P8-07 Apply stable registry order.**
+- [x] **P8-07 Apply stable registry order.**
   Guarantee a deterministic final tie-break even when all prior fields are
   equal or unavailable.
 
-- [ ] **P8-08 Implement explicit-provider authority.**
+- [x] **P8-08 Implement explicit-provider authority.**
   CLI, environment, and config explicit choices bypass automatic ranking; a
   known but missing choice exits `69`, an unknown ID exits `64`, and neither
   falls through.
 
-- [ ] **P8-09 Explain the decisive field.**
+- [x] **P8-09 Explain the decisive field.**
   Produce a nonsecret reason code and display string identifying the first
   tuple field that distinguished the winner.
 
-- [ ] **P8-10 Emit the selection notice.**
+- [x] **P8-10 Emit the selection notice.**
   Write provider, funding class, safe plan label if available, and decisive
   reason to stderr; `--quiet` suppresses only this wrapper-owned notice.
 
-- [ ] **P8-11 Handle an empty candidate set.**
+- [x] **P8-11 Handle an empty candidate set.**
   When no installed usable/unknown adapter exists, exit `69` with install or
   explicit-provider guidance and no model launch.
 
-- [ ] **P8-12 Test the two primary cost-saving scenarios.**
+- [x] **P8-12 Test the two primary cost-saving scenarios.**
   Claude subscription plus API-only Codex selects Claude; ChatGPT included
   Codex plus API-only Claude selects Codex, independent of popularity.
 
-- [ ] **P8-13 Test included-plan ties.**
+- [x] **P8-13 Test included-plan ties.**
   Two included plans resolve by confidence, configured priority, popularity,
   then registry order; unknown remaining quota is neutral.
 
-- [ ] **P8-14 Test deliberate metered fallback.**
+- [x] **P8-14 Test deliberate metered fallback.**
   With no included, prepaid, or allowed local path, choose the best ready direct
   API candidate and clearly label it `payg_byok`.
 
-- [ ] **P8-15 Test unusable and unknown candidates.**
+- [x] **P8-15 Test unusable and unknown candidates.**
   Known-unusable candidates are skipped; an unknown candidate remains eligible
   as a last resort; probe failure cannot silently become `ready`.
 
-- [ ] **P8-16 Prove no history or quota tie-break exists in MVP.**
+- [x] **P8-16 Prove no history or quota tie-break exists in MVP.**
   Repeated runs with identical inputs must select identically regardless of
   previous success, wall-clock time, or any cached provider usage file.
 
 ### Phase 8 exit gate
 
-- [ ] A table-driven cross-runner suite covers every tuple field and all
+- [x] A table-driven cross-runner suite covers every tuple field and all
   required outcomes; acceptance criteria 2, 3, and 5 pass exactly.
+
+  Evidence: [PR #8](https://github.com/AnandChowdhary/aagent/pull/8) and
+  [cross-platform CI run 30958377635](https://github.com/AnandChowdhary/aagent/actions/runs/30958377635).
 
 ## Phase 9 - Child authentication environment policy
 
