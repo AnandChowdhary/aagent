@@ -19,6 +19,8 @@ Core options:
 -m, --model ID        Request a provider-native model ID
 -C, --cwd DIRECTORY   Run from this working directory
     --auth-policy P   Authentication policy: prefer-included or native
+    --priority IDS    Comma-separated provider tie-break order
+    --allow-local B   Allow local models: true or false
     --dry-run         Print the resolved invocation without running it
     --quiet           Do not print the provider-selection notice
     --                Treat remaining arguments as provider-native options
@@ -98,6 +100,10 @@ Configuration locations:
 - macOS/Linux: `${XDG_CONFIG_HOME:-$HOME/.config}/aagent/config`
 - Windows: `%APPDATA%\aagent\config`
 
+If neither `XDG_CONFIG_HOME` nor `HOME` is available on Unix, or `APPDATA` is
+absent on Windows, the user-config location is unavailable and no file is
+loaded. Environment variables and defaults still apply deterministically.
+
 The file is a strict `key=value` format with only documented keys:
 
 ```ini
@@ -107,16 +113,29 @@ priority=codex,claude,opencode,copilot,gemini
 allow_local=false
 ```
 
-Whitespace around keys and values is ignored. Unknown keys are errors in
-`aagent doctor` and warnings during normal invocation. The file is parsed as
-data and is never sourced. Project-local configuration is deferred because
-loading behavioral configuration from an untrusted repository would create a
-security boundary the MVP does not need.
+Whitespace around keys and values is ignored. A line whose first non-whitespace
+character is `#` is a comment; inline comments and quoted-value syntax do not
+exist. Lines are limited to 4096 characters. Malformed lines, duplicate keys,
+and invalid known values are configuration errors. Unknown keys are errors in
+`aagent doctor` and warnings during normal invocation. Diagnostics identify the
+file, line, and safe key name, but never reproduce a value.
 
-Environment variables override the file. Command-line options override both.
-The corresponding variables are `AAGENT_AUTH_POLICY`, `AAGENT_PRIORITY`, and
-`AAGENT_ALLOW_LOCAL`. Provider precedence is specified in
-[selection.md](selection.md).
+The file is parsed as inert data and is never sourced. Project-local
+configuration is deferred because loading behavioral configuration from an
+untrusted repository would create a security boundary the MVP does not need.
+
+Effective values use this stable precedence:
+
+| Value | Command line | Environment | User config | Default |
+| --- | --- | --- | --- | --- |
+| provider | `--provider` | `AAGENT_PROVIDER` | `provider` | automatic selection |
+| auth policy | `--auth-policy` | `AAGENT_AUTH_POLICY` | `auth_policy` | `prefer-included` |
+| priority | `--priority` | `AAGENT_PRIORITY` | `priority` | empty |
+| local models | `--allow-local true\|false` | `AAGENT_ALLOW_LOCAL` | `allow_local` | `false` |
+
+Priority is only a tie-break order inside equivalent readiness, funding, and
+confidence classes; it cannot cross any of those cost-safety boundaries.
+Provider precedence is expanded in [selection.md](selection.md).
 
 ## Model selection
 

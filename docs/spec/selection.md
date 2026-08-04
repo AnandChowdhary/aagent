@@ -82,10 +82,10 @@ Required outcomes include:
 - If no included, prepaid, or allowed local candidate exists, a ready direct
   model API becomes the deliberate metered fallback.
 
-`AAGENT_PRIORITY` or the configured `priority` list breaks ties within the same
-funding and confidence class. It does not override the cost boundary. Users who
-want an unconditional choice use `--provider`, `AAGENT_PROVIDER`, or the
-`provider` config key.
+`--priority`, `AAGENT_PRIORITY`, or the configured `priority` list breaks ties
+within the same readiness, funding, and confidence class. It does not override
+any of those boundaries. Users who want an unconditional choice use
+`--provider`, `AAGENT_PROVIDER`, or the `provider` config key.
 
 ## Popularity prior
 

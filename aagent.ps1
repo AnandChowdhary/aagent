@@ -70,6 +70,262 @@ function Get-AagentAdapter([string] $Id) {
     return (Get-AagentAdapterRegistry | Where-Object Id -CEQ $Id | Select-Object -First 1)
 }
 
+function Get-AagentConfigurationPath {
+    param([bool] $Windows = $IsWindows)
+
+    if ($Windows) {
+        $appData = [Environment]::GetEnvironmentVariable("APPDATA", "Process")
+        if ([string]::IsNullOrEmpty($appData)) {
+            return ""
+        }
+        return [IO.Path]::Combine($appData, "aagent", "config")
+    }
+
+    $xdgConfigHome = [Environment]::GetEnvironmentVariable("XDG_CONFIG_HOME", "Process")
+    if (-not [string]::IsNullOrEmpty($xdgConfigHome)) {
+        return [IO.Path]::Combine($xdgConfigHome, "aagent", "config")
+    }
+    $homeDirectory = [Environment]::GetEnvironmentVariable("HOME", "Process")
+    if ([string]::IsNullOrEmpty($homeDirectory)) {
+        return ""
+    }
+    return [IO.Path]::Combine($homeDirectory, ".config", "aagent", "config")
+}
+
+function Test-AagentPriorityValue([string] $Value) {
+    if ([string]::IsNullOrEmpty($Value)) {
+        return $false
+    }
+
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($rawId in $Value.Split(',', [StringSplitOptions]::None)) {
+        $id = $rawId.Trim([char[]] @(' ', "`t"))
+        if ([string]::IsNullOrEmpty($id) -or $null -eq (Get-AagentAdapter $id)) {
+            return $false
+        }
+        if (-not $seen.Add($id)) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Test-AagentConfigurationValue([string] $Key, [string] $Value) {
+    switch -CaseSensitive ($Key) {
+        "provider" {
+            return -not [string]::IsNullOrEmpty($Value) -and $null -ne (Get-AagentAdapter $Value)
+        }
+        "auth_policy" {
+            return $Value -cin @("prefer-included", "native")
+        }
+        "priority" {
+            return Test-AagentPriorityValue $Value
+        }
+        "allow_local" {
+            return $Value -cin @("true", "false")
+        }
+        default {
+            return $false
+        }
+    }
+}
+
+function New-AagentConfigurationResult([string] $Path) {
+    return [pscustomobject] @{
+        Path = $Path
+        Values = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+        Lines = [Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
+        Warnings = [Collections.Generic.List[string]]::new()
+        Error = ""
+        Status = $AagentExitOk
+    }
+}
+
+function Set-AagentConfigurationError {
+    param(
+        $Configuration,
+        [int] $Line,
+        [string] $Key,
+        [string] $Message
+    )
+
+    $location = $Configuration.Path
+    if ($Line -gt 0) {
+        $location += " at line $Line"
+    }
+    if (-not [string]::IsNullOrEmpty($Key)) {
+        $location += " ($Key)"
+    }
+    $Configuration.Error = "configuration error in ${location}: $Message"
+    $Configuration.Status = $AagentExitConfig
+    return $Configuration
+}
+
+function Read-AagentUserConfiguration {
+    param([bool] $Doctor = $false)
+
+    $path = Get-AagentConfigurationPath
+    $configuration = New-AagentConfigurationResult $path
+    if ([string]::IsNullOrEmpty($path) -or -not (Test-Path -LiteralPath $path)) {
+        return $configuration
+    }
+
+    try {
+        $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        if ($item.PSIsContainer) {
+            return Set-AagentConfigurationError $configuration 0 "" "configuration file is not a readable regular file"
+        }
+        $lines = [IO.File]::ReadAllLines($path)
+    } catch {
+        return Set-AagentConfigurationError $configuration 0 "" "configuration file is not a readable regular file"
+    }
+
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    for ($index = 0; $index -lt $lines.Count; $index++) {
+        $lineNumber = $index + 1
+        $line = $lines[$index]
+        if ($line.Length -gt 4096) {
+            return Set-AagentConfigurationError $configuration $lineNumber "" "line exceeds 4096 characters"
+        }
+        $trimmed = $line.Trim([char[]] @(' ', "`t"))
+        if ([string]::IsNullOrEmpty($trimmed) -or $trimmed.StartsWith("#", [StringComparison]::Ordinal)) {
+            continue
+        }
+
+        $separator = $trimmed.IndexOf('=')
+        if ($separator -lt 0) {
+            return Set-AagentConfigurationError $configuration $lineNumber "" "expected key=value"
+        }
+        $key = $trimmed.Substring(0, $separator).Trim([char[]] @(' ', "`t"))
+        $value = $trimmed.Substring($separator + 1).Trim([char[]] @(' ', "`t"))
+        if ($key -cnotmatch '^[A-Za-z_][A-Za-z0-9_]*$') {
+            return Set-AagentConfigurationError $configuration $lineNumber "" "invalid key name"
+        }
+        if (-not $seen.Add($key)) {
+            return Set-AagentConfigurationError $configuration $lineNumber $key "duplicate key"
+        }
+
+        if ($key -cnotin @("provider", "auth_policy", "priority", "allow_local")) {
+            if ($Doctor) {
+                return Set-AagentConfigurationError $configuration $lineNumber $key "unknown key"
+            }
+            $configuration.Warnings.Add(
+                "$path line ${lineNumber}: unknown configuration key '$key' ignored"
+            )
+            continue
+        }
+        if (-not (Test-AagentConfigurationValue $key $value)) {
+            return Set-AagentConfigurationError $configuration $lineNumber $key "invalid value"
+        }
+        $configuration.Values.Add($key, $value)
+        $configuration.Lines.Add($key, $lineNumber)
+    }
+    return $configuration
+}
+
+function Set-AagentConfigurationFailure($Result, [int] $Status, [string] $Message) {
+    $Result.Status = $Status
+    $Result.Error = $Message
+    return $Result
+}
+
+function Resolve-AagentConfiguration {
+    param(
+        $Result,
+        [bool] $Doctor = $false
+    )
+
+    $configuration = Read-AagentUserConfiguration -Doctor:$Doctor
+    foreach ($warning in $configuration.Warnings) {
+        [Console]::Error.WriteLine("aagent: warning: $warning")
+    }
+    if ($configuration.Status -ne $AagentExitOk) {
+        [Console]::Error.WriteLine("aagent: $($configuration.Error)")
+        return Set-AagentConfigurationFailure $Result $configuration.Status $configuration.Error
+    }
+
+    $environmentProvider = [Environment]::GetEnvironmentVariable("AAGENT_PROVIDER", "Process")
+    if ($Result.ProviderSpecified) {
+        $Result.ProviderSource = "cli"
+        $Result.ProviderSourceLabel = "explicit --provider"
+    } elseif ($null -ne $environmentProvider) {
+        if (-not (Test-AagentConfigurationValue "provider" $environmentProvider)) {
+            [Console]::Error.WriteLine("aagent: invalid AAGENT_PROVIDER configuration")
+            return Set-AagentConfigurationFailure $Result $AagentExitConfig "invalid AAGENT_PROVIDER configuration"
+        }
+        $Result.Provider = $environmentProvider
+        $Result.ProviderSource = "environment"
+        $Result.ProviderSourceLabel = "AAGENT_PROVIDER"
+    } elseif ($configuration.Values.ContainsKey("provider")) {
+        $Result.Provider = $configuration.Values["provider"]
+        $Result.ProviderSource = "config"
+        $Result.ProviderSourceLabel = "user config"
+    } else {
+        $Result.Provider = ""
+        $Result.ProviderSource = "default"
+        $Result.ProviderSourceLabel = "automatic selection"
+    }
+
+    $environmentAuthPolicy = [Environment]::GetEnvironmentVariable("AAGENT_AUTH_POLICY", "Process")
+    if ($Result.AuthPolicySpecified) {
+        $Result.AuthPolicySource = "cli"
+    } elseif ($null -ne $environmentAuthPolicy) {
+        if (-not (Test-AagentConfigurationValue "auth_policy" $environmentAuthPolicy)) {
+            [Console]::Error.WriteLine("aagent: invalid AAGENT_AUTH_POLICY configuration")
+            return Set-AagentConfigurationFailure $Result $AagentExitConfig "invalid AAGENT_AUTH_POLICY configuration"
+        }
+        $Result.AuthPolicy = $environmentAuthPolicy
+        $Result.AuthPolicySource = "environment"
+    } elseif ($configuration.Values.ContainsKey("auth_policy")) {
+        $Result.AuthPolicy = $configuration.Values["auth_policy"]
+        $Result.AuthPolicySource = "config"
+    } else {
+        $Result.AuthPolicy = "prefer-included"
+        $Result.AuthPolicySource = "default"
+    }
+
+    $environmentPriority = [Environment]::GetEnvironmentVariable("AAGENT_PRIORITY", "Process")
+    if ($Result.PrioritySpecified) {
+        if (-not (Test-AagentConfigurationValue "priority" $Result.Priority)) {
+            return Set-AagentConfigurationFailure $Result $AagentExitUsage "invalid --priority value"
+        }
+        $Result.PrioritySource = "cli"
+    } elseif ($null -ne $environmentPriority) {
+        if (-not (Test-AagentConfigurationValue "priority" $environmentPriority)) {
+            [Console]::Error.WriteLine("aagent: invalid AAGENT_PRIORITY configuration")
+            return Set-AagentConfigurationFailure $Result $AagentExitConfig "invalid AAGENT_PRIORITY configuration"
+        }
+        $Result.Priority = $environmentPriority
+        $Result.PrioritySource = "environment"
+    } elseif ($configuration.Values.ContainsKey("priority")) {
+        $Result.Priority = $configuration.Values["priority"]
+        $Result.PrioritySource = "config"
+    } else {
+        $Result.Priority = ""
+        $Result.PrioritySource = "default"
+    }
+    $Result.PriorityRole = "tie-break-only"
+
+    $environmentAllowLocal = [Environment]::GetEnvironmentVariable("AAGENT_ALLOW_LOCAL", "Process")
+    if ($Result.AllowLocalSpecified) {
+        $Result.AllowLocalSource = "cli"
+    } elseif ($null -ne $environmentAllowLocal) {
+        if (-not (Test-AagentConfigurationValue "allow_local" $environmentAllowLocal)) {
+            [Console]::Error.WriteLine("aagent: invalid AAGENT_ALLOW_LOCAL configuration")
+            return Set-AagentConfigurationFailure $Result $AagentExitConfig "invalid AAGENT_ALLOW_LOCAL configuration"
+        }
+        $Result.AllowLocal = $environmentAllowLocal
+        $Result.AllowLocalSource = "environment"
+    } elseif ($configuration.Values.ContainsKey("allow_local")) {
+        $Result.AllowLocal = $configuration.Values["allow_local"]
+        $Result.AllowLocalSource = "config"
+    } else {
+        $Result.AllowLocal = "false"
+        $Result.AllowLocalSource = "default"
+    }
+    return $Result
+}
+
 function Resolve-AagentPhysicalPath([string] $Path) {
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     $isLink = -not [string]::IsNullOrEmpty($item.LinkType)
@@ -570,8 +826,8 @@ function New-AagentAdapterLaunchPlan($Result, $Adapter, [string] $Executable) {
             Set-AagentLaunchDisplayArguments $plan ([string[]] $displayArguments)
         }
         $plan.Provider = $Adapter.Id
-        $plan.Reason = "explicit --provider"
-        $plan.Notice = "selected $($Adapter.Name) via explicit --provider"
+        $plan.Reason = $Result.ProviderSourceLabel
+        $plan.Notice = "selected $($Adapter.Name) via $($Result.ProviderSourceLabel)"
         return New-AagentAdapterBuildResult $AagentExitOk "" $plan
     } catch {
         return New-AagentAdapterBuildResult $AagentExitSoftware $_.Exception.Message $null
@@ -591,7 +847,9 @@ function Invoke-AagentExplicitProvider($Result) {
 
     $target = Resolve-AagentDiscoveryTarget $adapter
     if (-not $target.Found) {
-        [Console]::Error.WriteLine("aagent: provider $($Result.Provider) is unavailable: $($target.Reason)")
+        [Console]::Error.WriteLine(
+            "aagent: provider $($Result.Provider) selected via $($Result.ProviderSourceLabel) is unavailable: $($target.Reason)"
+        )
         return $AagentExitUnavailable
     }
 
@@ -625,6 +883,8 @@ Options:
   -m, --model ID        Request a provider-native model ID
   -C, --cwd DIRECTORY   Run from this working directory
       --auth-policy P   Authentication policy: prefer-included or native
+      --priority IDS    Comma-separated provider tie-break order
+      --allow-local B   Allow local models: true or false
       --dry-run         Print the resolved invocation without running it
       --quiet           Do not print the provider-selection notice
   -h, --help            Show this help message
@@ -647,9 +907,21 @@ function New-AagentParseResult {
     return [pscustomobject] @{
         Command = "run"
         Provider = ""
+        ProviderSpecified = $false
+        ProviderSource = ""
+        ProviderSourceLabel = ""
         Model = ""
         Cwd = ""
-        AuthPolicy = "prefer-included"
+        AuthPolicy = ""
+        AuthPolicySpecified = $false
+        AuthPolicySource = ""
+        Priority = ""
+        PrioritySpecified = $false
+        PrioritySource = ""
+        PriorityRole = ""
+        AllowLocal = ""
+        AllowLocalSpecified = $false
+        AllowLocalSource = ""
         DryRun = $false
         Quiet = $false
         DoctorProvider = ""
@@ -720,6 +992,7 @@ function Parse-AagentArguments {
             { $_ -in @("-P", "--provider") } {
                 if (-not (Test-AagentOptionValue $result $token $Arguments $index)) { return $result }
                 $result.Provider = $Arguments[$index + 1]
+                $result.ProviderSpecified = $true
                 $index += 2
                 continue
             }
@@ -742,6 +1015,25 @@ function Parse-AagentArguments {
                     return Set-AagentParseError $result "invalid authentication policy: $policy"
                 }
                 $result.AuthPolicy = $policy
+                $result.AuthPolicySpecified = $true
+                $index += 2
+                continue
+            }
+            "--priority" {
+                if (-not (Test-AagentOptionValue $result $token $Arguments $index)) { return $result }
+                $result.Priority = $Arguments[$index + 1]
+                $result.PrioritySpecified = $true
+                $index += 2
+                continue
+            }
+            "--allow-local" {
+                if (-not (Test-AagentOptionValue $result $token $Arguments $index)) { return $result }
+                $allowLocal = $Arguments[$index + 1]
+                if ($allowLocal -cnotin @("true", "false")) {
+                    return Set-AagentParseError $result "invalid --allow-local value"
+                }
+                $result.AllowLocal = $allowLocal
+                $result.AllowLocalSpecified = $true
                 $index += 2
                 continue
             }
@@ -868,10 +1160,19 @@ function Invoke-Aagent {
             [Console]::Out.WriteLine("aagent $AagentVersion")
             return $AagentExitOk
         }
-        { $_ -in @("providers", "doctor") } {
-            [Console]::Error.WriteLine("aagent: $($result.Command) is not available in this build yet")
-            return $AagentExitUnavailable
+    }
+
+    $result = Resolve-AagentConfiguration -Result $result -Doctor:($result.Command -eq "doctor")
+    if ($result.Status -ne $AagentExitOk) {
+        if ($result.Status -eq $AagentExitUsage) {
+            Write-AagentUsageError $result.Error
         }
+        return $result.Status
+    }
+
+    if ($result.Command -in @("providers", "doctor")) {
+        [Console]::Error.WriteLine("aagent: $($result.Command) is not available in this build yet")
+        return $AagentExitUnavailable
     }
 
     $stdinAvailable = [Console]::IsInputRedirected

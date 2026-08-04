@@ -114,6 +114,285 @@ aagent_get_adapter_index() {
     return "$AAGENT_EXIT_USAGE"
 }
 
+aagent_trim_config_whitespace() {
+    local value="$1"
+    value="${value#"${value%%[!$' \t']*}"}"
+    value="${value%"${value##*[!$' \t']}"}"
+    printf '%s' "$value"
+}
+
+aagent_resolve_config_path() {
+    if [[ -n "${XDG_CONFIG_HOME-}" ]]; then
+        AAGENT_CONFIG_PATH="$XDG_CONFIG_HOME/aagent/config"
+    elif [[ -n "${HOME-}" ]]; then
+        AAGENT_CONFIG_PATH="$HOME/.config/aagent/config"
+    else
+        AAGENT_CONFIG_PATH=""
+    fi
+}
+
+aagent_reset_config_result() {
+    AAGENT_CONFIG_PATH=""
+    AAGENT_CONFIG_ERROR=""
+    AAGENT_CONFIG_PROVIDER=""
+    AAGENT_CONFIG_AUTH_POLICY=""
+    AAGENT_CONFIG_PRIORITY=""
+    AAGENT_CONFIG_ALLOW_LOCAL=""
+    AAGENT_CONFIG_PROVIDER_SET=0
+    AAGENT_CONFIG_AUTH_POLICY_SET=0
+    AAGENT_CONFIG_PRIORITY_SET=0
+    AAGENT_CONFIG_ALLOW_LOCAL_SET=0
+    AAGENT_CONFIG_SEEN_KEYS=()
+}
+
+aagent_set_config_error() {
+    local line_number="$1"
+    local key="$2"
+    local message="$3"
+
+    if [[ -n "$line_number" && -n "$key" ]]; then
+        AAGENT_CONFIG_ERROR="configuration error in $AAGENT_CONFIG_PATH at line $line_number ($key): $message"
+    elif [[ -n "$line_number" ]]; then
+        AAGENT_CONFIG_ERROR="configuration error in $AAGENT_CONFIG_PATH at line $line_number: $message"
+    else
+        AAGENT_CONFIG_ERROR="configuration error in $AAGENT_CONFIG_PATH: $message"
+    fi
+    printf 'aagent: %s\n' "$AAGENT_CONFIG_ERROR" >&2
+    return "$AAGENT_EXIT_CONFIG"
+}
+
+aagent_config_key_was_seen() {
+    local requested="$1"
+    local seen
+    for seen in "${AAGENT_CONFIG_SEEN_KEYS[@]+"${AAGENT_CONFIG_SEEN_KEYS[@]}"}"; do
+        [[ "$seen" == "$requested" ]] && return "$AAGENT_EXIT_OK"
+    done
+    return 1
+}
+
+aagent_validate_priority_value() {
+    local value="$1"
+    local old_ifs="$IFS"
+    local -a ids=()
+    local -a seen=()
+    local id
+    local existing
+
+    [[ -n "$value" && "$value" != ,* && "$value" != *, && "$value" != *,,* ]] || return 1
+    IFS=',' read -r -a ids <<<"$value"
+    IFS="$old_ifs"
+    (( ${#ids[@]} > 0 )) || return 1
+
+    for id in "${ids[@]}"; do
+        id="$(aagent_trim_config_whitespace "$id")"
+        [[ -n "$id" ]] || return 1
+        aagent_get_adapter_index "$id" >/dev/null || return 1
+        for existing in "${seen[@]+"${seen[@]}"}"; do
+            [[ "$existing" != "$id" ]] || return 1
+        done
+        seen+=("$id")
+    done
+}
+
+aagent_validate_config_value() {
+    local key="$1"
+    local value="$2"
+
+    case "$key" in
+        provider)
+            [[ -n "$value" ]] && aagent_get_adapter_index "$value" >/dev/null
+            ;;
+        auth_policy)
+            [[ "$value" == "prefer-included" || "$value" == "native" ]]
+            ;;
+        priority)
+            aagent_validate_priority_value "$value"
+            ;;
+        allow_local)
+            [[ "$value" == "true" || "$value" == "false" ]]
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+aagent_read_user_config() {
+    local unknown_mode="$1"
+    local line=""
+    local trimmed=""
+    local key=""
+    local value=""
+    local line_number=0
+
+    aagent_reset_config_result
+    aagent_resolve_config_path
+    [[ -n "$AAGENT_CONFIG_PATH" ]] || return "$AAGENT_EXIT_OK"
+    [[ -e "$AAGENT_CONFIG_PATH" ]] || return "$AAGENT_EXIT_OK"
+    if [[ ! -f "$AAGENT_CONFIG_PATH" || ! -r "$AAGENT_CONFIG_PATH" ]]; then
+        aagent_set_config_error "" "" "configuration file is not a readable regular file"
+        return "$AAGENT_EXIT_CONFIG"
+    fi
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line_number=$((line_number + 1))
+        line="${line%$'\r'}"
+        if (( ${#line} > 4096 )); then
+            aagent_set_config_error "$line_number" "" "line exceeds 4096 characters"
+            return "$AAGENT_EXIT_CONFIG"
+        fi
+        trimmed="$(aagent_trim_config_whitespace "$line")"
+        [[ -n "$trimmed" ]] || continue
+        [[ "${trimmed:0:1}" == "#" ]] && continue
+        if [[ "$trimmed" != *=* ]]; then
+            aagent_set_config_error "$line_number" "" "expected key=value"
+            return "$AAGENT_EXIT_CONFIG"
+        fi
+
+        key="$(aagent_trim_config_whitespace "${trimmed%%=*}")"
+        value="$(aagent_trim_config_whitespace "${trimmed#*=}")"
+        if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            aagent_set_config_error "$line_number" "" "invalid key name"
+            return "$AAGENT_EXIT_CONFIG"
+        fi
+        if aagent_config_key_was_seen "$key"; then
+            aagent_set_config_error "$line_number" "$key" "duplicate key"
+            return "$AAGENT_EXIT_CONFIG"
+        fi
+        AAGENT_CONFIG_SEEN_KEYS+=("$key")
+
+        case "$key" in
+            provider|auth_policy|priority|allow_local)
+                if ! aagent_validate_config_value "$key" "$value"; then
+                    aagent_set_config_error "$line_number" "$key" "invalid value"
+                    return "$AAGENT_EXIT_CONFIG"
+                fi
+                case "$key" in
+                    provider)
+                        AAGENT_CONFIG_PROVIDER="$value"
+                        AAGENT_CONFIG_PROVIDER_SET=1
+                        ;;
+                    auth_policy)
+                        AAGENT_CONFIG_AUTH_POLICY="$value"
+                        AAGENT_CONFIG_AUTH_POLICY_SET=1
+                        ;;
+                    priority)
+                        AAGENT_CONFIG_PRIORITY="$value"
+                        AAGENT_CONFIG_PRIORITY_SET=1
+                        ;;
+                    allow_local)
+                        AAGENT_CONFIG_ALLOW_LOCAL="$value"
+                        AAGENT_CONFIG_ALLOW_LOCAL_SET=1
+                        ;;
+                esac
+                ;;
+            *)
+                if [[ "$unknown_mode" == "doctor" ]]; then
+                    aagent_set_config_error "$line_number" "$key" "unknown key"
+                    return "$AAGENT_EXIT_CONFIG"
+                fi
+                printf "aagent: warning: %s line %s: unknown configuration key '%s' ignored\n" \
+                    "$AAGENT_CONFIG_PATH" "$line_number" "$key" >&2
+                ;;
+        esac
+    done <"$AAGENT_CONFIG_PATH"
+}
+
+aagent_validate_effective_config_value() {
+    local key="$1"
+    local value="$2"
+    local source_name="$3"
+    local source_kind="$4"
+
+    if aagent_validate_config_value "$key" "$value"; then
+        return "$AAGENT_EXIT_OK"
+    fi
+    if [[ "$source_kind" == "cli" ]]; then
+        aagent_set_parse_error "invalid $source_name value"
+        return "$AAGENT_EXIT_USAGE"
+    fi
+    printf 'aagent: invalid %s configuration\n' "$source_name" >&2
+    return "$AAGENT_EXIT_CONFIG"
+}
+
+aagent_resolve_configuration() {
+    local mode="${1:-normal}"
+
+    aagent_initialize_registry
+    aagent_read_user_config "$mode" || return $?
+
+    if (( AAGENT_CLI_PROVIDER_SET )); then
+        AAGENT_EFFECTIVE_PROVIDER="$AAGENT_CLI_PROVIDER"
+        AAGENT_PROVIDER_SOURCE="cli"
+        AAGENT_PROVIDER_SOURCE_LABEL="explicit --provider"
+    elif [[ -n "${AAGENT_PROVIDER+x}" ]]; then
+        AAGENT_EFFECTIVE_PROVIDER="$AAGENT_PROVIDER"
+        AAGENT_PROVIDER_SOURCE="environment"
+        AAGENT_PROVIDER_SOURCE_LABEL="AAGENT_PROVIDER"
+        aagent_validate_effective_config_value provider "$AAGENT_EFFECTIVE_PROVIDER" \
+            AAGENT_PROVIDER environment || return $?
+    elif (( AAGENT_CONFIG_PROVIDER_SET )); then
+        AAGENT_EFFECTIVE_PROVIDER="$AAGENT_CONFIG_PROVIDER"
+        AAGENT_PROVIDER_SOURCE="config"
+        AAGENT_PROVIDER_SOURCE_LABEL="user config"
+    else
+        AAGENT_EFFECTIVE_PROVIDER=""
+        AAGENT_PROVIDER_SOURCE="default"
+        AAGENT_PROVIDER_SOURCE_LABEL="automatic selection"
+    fi
+
+    if (( AAGENT_CLI_AUTH_POLICY_SET )); then
+        AAGENT_EFFECTIVE_AUTH_POLICY="$AAGENT_CLI_AUTH_POLICY"
+        AAGENT_AUTH_POLICY_SOURCE="cli"
+    elif [[ -n "${AAGENT_AUTH_POLICY+x}" ]]; then
+        AAGENT_EFFECTIVE_AUTH_POLICY="$AAGENT_AUTH_POLICY"
+        AAGENT_AUTH_POLICY_SOURCE="environment"
+        aagent_validate_effective_config_value auth_policy "$AAGENT_EFFECTIVE_AUTH_POLICY" \
+            AAGENT_AUTH_POLICY environment || return $?
+    elif (( AAGENT_CONFIG_AUTH_POLICY_SET )); then
+        AAGENT_EFFECTIVE_AUTH_POLICY="$AAGENT_CONFIG_AUTH_POLICY"
+        AAGENT_AUTH_POLICY_SOURCE="config"
+    else
+        AAGENT_EFFECTIVE_AUTH_POLICY="prefer-included"
+        AAGENT_AUTH_POLICY_SOURCE="default"
+    fi
+
+    if (( AAGENT_CLI_PRIORITY_SET )); then
+        aagent_validate_effective_config_value priority "$AAGENT_CLI_PRIORITY" \
+            --priority cli || return $?
+        AAGENT_EFFECTIVE_PRIORITY="$AAGENT_CLI_PRIORITY"
+        AAGENT_PRIORITY_SOURCE="cli"
+    elif [[ -n "${AAGENT_PRIORITY+x}" ]]; then
+        AAGENT_EFFECTIVE_PRIORITY="$AAGENT_PRIORITY"
+        AAGENT_PRIORITY_SOURCE="environment"
+        aagent_validate_effective_config_value priority "$AAGENT_EFFECTIVE_PRIORITY" \
+            AAGENT_PRIORITY environment || return $?
+    elif (( AAGENT_CONFIG_PRIORITY_SET )); then
+        AAGENT_EFFECTIVE_PRIORITY="$AAGENT_CONFIG_PRIORITY"
+        AAGENT_PRIORITY_SOURCE="config"
+    else
+        AAGENT_EFFECTIVE_PRIORITY=""
+        AAGENT_PRIORITY_SOURCE="default"
+    fi
+    AAGENT_PRIORITY_ROLE="tie-break-only"
+
+    if (( AAGENT_CLI_ALLOW_LOCAL_SET )); then
+        AAGENT_EFFECTIVE_ALLOW_LOCAL="$AAGENT_CLI_ALLOW_LOCAL"
+        AAGENT_ALLOW_LOCAL_SOURCE="cli"
+    elif [[ -n "${AAGENT_ALLOW_LOCAL+x}" ]]; then
+        AAGENT_EFFECTIVE_ALLOW_LOCAL="$AAGENT_ALLOW_LOCAL"
+        AAGENT_ALLOW_LOCAL_SOURCE="environment"
+        aagent_validate_effective_config_value allow_local "$AAGENT_EFFECTIVE_ALLOW_LOCAL" \
+            AAGENT_ALLOW_LOCAL environment || return $?
+    elif (( AAGENT_CONFIG_ALLOW_LOCAL_SET )); then
+        AAGENT_EFFECTIVE_ALLOW_LOCAL="$AAGENT_CONFIG_ALLOW_LOCAL"
+        AAGENT_ALLOW_LOCAL_SOURCE="config"
+    else
+        AAGENT_EFFECTIVE_ALLOW_LOCAL="false"
+        AAGENT_ALLOW_LOCAL_SOURCE="default"
+    fi
+}
+
 aagent_resolve_discovery_target() {
     local executable="$1"
     local override_name="$2"
@@ -563,8 +842,8 @@ aagent_build_adapter_launch_plan() {
         aagent_launch_plan_set_display_arguments "${AAGENT_ADAPTER_DISPLAY_ARGUMENTS[@]}" || return $?
     fi
     AAGENT_LAUNCH_PROVIDER="$provider"
-    AAGENT_LAUNCH_REASON="explicit --provider"
-    AAGENT_LAUNCH_NOTICE="selected $display_name via explicit --provider"
+    AAGENT_LAUNCH_REASON="$AAGENT_PROVIDER_SOURCE_LABEL"
+    AAGENT_LAUNCH_NOTICE="selected $display_name via $AAGENT_PROVIDER_SOURCE_LABEL"
 }
 
 aagent_run_explicit_provider() {
@@ -584,7 +863,8 @@ aagent_run_explicit_provider() {
     if ! aagent_resolve_discovery_target \
         "${AAGENT_ADAPTER_EXECUTABLES[$index]}" \
         "${AAGENT_ADAPTER_OVERRIDES[$index]}"; then
-        printf 'aagent: provider %s is unavailable: %s\n' "$provider" "$AAGENT_DISCOVERY_REASON" >&2
+        printf 'aagent: provider %s selected via %s is unavailable: %s\n' \
+            "$provider" "$AAGENT_PROVIDER_SOURCE_LABEL" "$AAGENT_DISCOVERY_REASON" >&2
         return "$AAGENT_EXIT_UNAVAILABLE"
     fi
 
@@ -627,6 +907,8 @@ Options:
   -m, --model ID        Request a provider-native model ID
   -C, --cwd DIRECTORY   Run from this working directory
       --auth-policy P   Authentication policy: prefer-included or native
+      --priority IDS    Comma-separated provider tie-break order
+      --allow-local B   Allow local models: true or false
       --dry-run         Print the resolved invocation without running it
       --quiet           Do not print the provider-selection notice
   -h, --help            Show this help message
@@ -656,10 +938,16 @@ aagent_set_parse_error() {
 
 aagent_reset_parse_result() {
     AAGENT_COMMAND="run"
-    AAGENT_PROVIDER=""
+    AAGENT_CLI_PROVIDER=""
+    AAGENT_CLI_PROVIDER_SET=0
     AAGENT_MODEL=""
     AAGENT_CWD=""
-    AAGENT_AUTH_POLICY="prefer-included"
+    AAGENT_CLI_AUTH_POLICY=""
+    AAGENT_CLI_AUTH_POLICY_SET=0
+    AAGENT_CLI_PRIORITY=""
+    AAGENT_CLI_PRIORITY_SET=0
+    AAGENT_CLI_ALLOW_LOCAL=""
+    AAGENT_CLI_ALLOW_LOCAL_SET=0
     AAGENT_DRY_RUN=0
     AAGENT_QUIET=0
     AAGENT_DOCTOR_PROVIDER=""
@@ -723,7 +1011,8 @@ aagent_parse_arguments() {
                 ;;
             -P|--provider)
                 aagent_require_option_value "$token" "$#" "${2-}" || return $?
-                AAGENT_PROVIDER="$2"
+                AAGENT_CLI_PROVIDER="$2"
+                AAGENT_CLI_PROVIDER_SET=1
                 shift 2
                 ;;
             -m|--model)
@@ -740,10 +1029,31 @@ aagent_parse_arguments() {
                 aagent_require_option_value "$token" "$#" "${2-}" || return $?
                 case "$2" in
                     prefer-included|native)
-                        AAGENT_AUTH_POLICY="$2"
+                        AAGENT_CLI_AUTH_POLICY="$2"
+                        AAGENT_CLI_AUTH_POLICY_SET=1
                         ;;
                     *)
                         aagent_set_parse_error "invalid authentication policy: $2"
+                        return "$AAGENT_EXIT_USAGE"
+                        ;;
+                esac
+                shift 2
+                ;;
+            --priority)
+                aagent_require_option_value "$token" "$#" "${2-}" || return $?
+                AAGENT_CLI_PRIORITY="$2"
+                AAGENT_CLI_PRIORITY_SET=1
+                shift 2
+                ;;
+            --allow-local)
+                aagent_require_option_value "$token" "$#" "${2-}" || return $?
+                case "$2" in
+                    true|false)
+                        AAGENT_CLI_ALLOW_LOCAL="$2"
+                        AAGENT_CLI_ALLOW_LOCAL_SET=1
+                        ;;
+                    *)
+                        aagent_set_parse_error "invalid --allow-local value"
                         return "$AAGENT_EXIT_USAGE"
                         ;;
                 esac
@@ -889,6 +1199,31 @@ aagent_main() {
             aagent_print_version
             return "$AAGENT_EXIT_OK"
             ;;
+    esac
+
+    if [[ "$AAGENT_COMMAND" == "doctor" ]]; then
+        if aagent_resolve_configuration doctor; then
+            :
+        else
+            status=$?
+            if [[ "$status" == "$AAGENT_EXIT_USAGE" ]]; then
+                aagent_print_usage_error "$AAGENT_PARSE_ERROR"
+            fi
+            return "$status"
+        fi
+    else
+        if aagent_resolve_configuration normal; then
+            :
+        else
+            status=$?
+            if [[ "$status" == "$AAGENT_EXIT_USAGE" ]]; then
+                aagent_print_usage_error "$AAGENT_PARSE_ERROR"
+            fi
+            return "$status"
+        fi
+    fi
+
+    case "$AAGENT_COMMAND" in
         providers|doctor)
             printf 'aagent: %s is not available in this build yet\n' "$AAGENT_COMMAND" >&2
             return "$AAGENT_EXIT_UNAVAILABLE"
@@ -906,8 +1241,8 @@ aagent_main() {
         return "$status"
     }
 
-    if [[ -n "$AAGENT_PROVIDER" ]]; then
-        aagent_run_explicit_provider "$AAGENT_PROVIDER" || return $?
+    if [[ -n "$AAGENT_EFFECTIVE_PROVIDER" ]]; then
+        aagent_run_explicit_provider "$AAGENT_EFFECTIVE_PROVIDER" || return $?
         return "$AAGENT_EXIT_OK"
     fi
 
