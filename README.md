@@ -9,8 +9,10 @@ registry, and side-effect-free executable discovery. Provider process execution
 now has a shared launch-plan contract and safe Bash/PowerShell execution core.
 The five Tier 1 adapters (Claude, Codex, OpenCode, Amp, and Gemini) can be run
 with an explicit provider selected by command line, environment, or strict user
-configuration. Automatic provider selection lands in the later selection
-phases, so a prompt without an explicit provider still exits with status `69`.
+configuration. Bounded passive authentication probes now classify safe local
+evidence for every Tier 1 provider without opening credential stores or sending
+model requests. Automatic ranking lands in the next selection phase, so a
+prompt without an explicit provider still exits with status `69`.
 
 ```bash
 aagent --provider claude "say hello"
@@ -86,8 +88,8 @@ pwsh ./tests/test_aagent.ps1
 ```
 
 GitHub Actions runs the Bash suite on Linux, macOS, and Windows, and the
-PowerShell suite on Windows. Both entrypoints include configuration, process
-launch, and Tier 1 adapter contract tests.
+PowerShell suite on Windows. Both entrypoints include configuration, passive
+probe, process-launch, and Tier 1 adapter contract tests.
 
 The test entrypoints create an isolated home, configuration directory, and
 controlled `PATH`. Tier 1 provider behavior is simulated by credential-free

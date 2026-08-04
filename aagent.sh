@@ -393,6 +393,862 @@ aagent_resolve_configuration() {
     fi
 }
 
+readonly AAGENT_PROBE_TIMEOUT_SECONDS=3
+readonly AAGENT_PROBE_MAX_BYTES=65536
+
+aagent_json_reset() {
+    AAGENT_JSON_INPUT=""
+    AAGENT_JSON_POS=0
+    AAGENT_JSON_LENGTH=0
+    AAGENT_JSON_ERROR=""
+    AAGENT_JSON_STRING=""
+    AAGENT_JSON_ALLOW_PATHS=()
+    AAGENT_JSON_RESULT_PATHS=()
+    AAGENT_JSON_RESULT_TYPES=()
+    AAGENT_JSON_RESULT_VALUES=()
+}
+
+aagent_json_make_path() {
+    local path=""
+    local segment
+    for segment in "$@"; do
+        path+="#${#segment}:$segment"
+    done
+    printf '%s' "$path"
+}
+
+aagent_json_skip_whitespace() {
+    local character
+    while (( AAGENT_JSON_POS < AAGENT_JSON_LENGTH )); do
+        character="${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}"
+        case "$character" in
+            ' '|$'\t'|$'\r'|$'\n') AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1)) ;;
+            *) break ;;
+        esac
+    done
+}
+
+aagent_json_fail() {
+    AAGENT_JSON_ERROR="invalid JSON"
+    return 1
+}
+
+# Backslash is deliberately matched as a single-quoted JSON character.
+# shellcheck disable=SC1003
+aagent_json_parse_string() {
+    local character
+    local escape
+    local hex
+    local code
+
+    [[ "${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}" == '"' ]] || return 1
+    AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+    AAGENT_JSON_STRING=""
+
+    while (( AAGENT_JSON_POS < AAGENT_JSON_LENGTH )); do
+        character="${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}"
+        AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+        case "$character" in
+            '"') return 0 ;;
+            '\\')
+                (( AAGENT_JSON_POS < AAGENT_JSON_LENGTH )) || return 1
+                escape="${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}"
+                AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+                case "$escape" in
+                    '"'|'\\'|'/') AAGENT_JSON_STRING+="$escape" ;;
+                    b) AAGENT_JSON_STRING+=$'\b' ;;
+                    f) AAGENT_JSON_STRING+=$'\f' ;;
+                    n) AAGENT_JSON_STRING+=$'\n' ;;
+                    r) AAGENT_JSON_STRING+=$'\r' ;;
+                    t) AAGENT_JSON_STRING+=$'\t' ;;
+                    u)
+                        (( AAGENT_JSON_POS + 4 <= AAGENT_JSON_LENGTH )) || return 1
+                        hex="${AAGENT_JSON_INPUT:AAGENT_JSON_POS:4}"
+                        [[ "$hex" =~ ^[0-9A-Fa-f]{4}$ ]] || return 1
+                        AAGENT_JSON_POS=$((AAGENT_JSON_POS + 4))
+                        AAGENT_JSON_STRING+='?'
+                        ;;
+                    *) return 1 ;;
+                esac
+                ;;
+            *)
+                LC_ALL=C printf -v code '%d' "'$character"
+                (( code >= 32 )) || return 1
+                AAGENT_JSON_STRING+="$character"
+                ;;
+        esac
+    done
+    return 1
+}
+
+aagent_json_path_is_allowed() {
+    local requested="$1"
+    local allowed
+    for allowed in "${AAGENT_JSON_ALLOW_PATHS[@]+"${AAGENT_JSON_ALLOW_PATHS[@]}"}"; do
+        [[ "$allowed" == "$requested" ]] && return 0
+    done
+    return 1
+}
+
+aagent_json_record_scalar() {
+    local path="$1"
+    local type="$2"
+    local value="$3"
+    local existing
+
+    aagent_json_path_is_allowed "$path" || return 0
+    for existing in "${AAGENT_JSON_RESULT_PATHS[@]+"${AAGENT_JSON_RESULT_PATHS[@]}"}"; do
+        [[ "$existing" != "$path" ]] || return 1
+    done
+    AAGENT_JSON_RESULT_PATHS+=("$path")
+    AAGENT_JSON_RESULT_TYPES+=("$type")
+    AAGENT_JSON_RESULT_VALUES+=("$value")
+}
+
+aagent_json_parse_value() {
+    local path="$1"
+    local depth="$2"
+    local character
+    local start
+    local token
+
+    (( depth <= 32 )) || return 1
+    aagent_json_skip_whitespace
+    (( AAGENT_JSON_POS < AAGENT_JSON_LENGTH )) || return 1
+    character="${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}"
+
+    case "$character" in
+        '{') aagent_json_parse_object "$path" "$depth" ;;
+        '[') aagent_json_parse_array "$path" "$depth" ;;
+        '"')
+            aagent_json_parse_string || return 1
+            aagent_json_record_scalar "$path" string "$AAGENT_JSON_STRING"
+            ;;
+        t)
+            [[ "${AAGENT_JSON_INPUT:AAGENT_JSON_POS:4}" == "true" ]] || return 1
+            AAGENT_JSON_POS=$((AAGENT_JSON_POS + 4))
+            aagent_json_record_scalar "$path" bool true
+            ;;
+        f)
+            [[ "${AAGENT_JSON_INPUT:AAGENT_JSON_POS:5}" == "false" ]] || return 1
+            AAGENT_JSON_POS=$((AAGENT_JSON_POS + 5))
+            aagent_json_record_scalar "$path" bool false
+            ;;
+        n)
+            [[ "${AAGENT_JSON_INPUT:AAGENT_JSON_POS:4}" == "null" ]] || return 1
+            AAGENT_JSON_POS=$((AAGENT_JSON_POS + 4))
+            aagent_json_record_scalar "$path" null ""
+            ;;
+        -|[0-9])
+            start="$AAGENT_JSON_POS"
+            while (( AAGENT_JSON_POS < AAGENT_JSON_LENGTH )); do
+                character="${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}"
+                [[ "$character" =~ [-+0-9.eE] ]] || break
+                AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+            done
+            token="${AAGENT_JSON_INPUT:start:AAGENT_JSON_POS-start}"
+            [[ "$token" =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$ ]] || return 1
+            aagent_json_record_scalar "$path" number "$token"
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+aagent_json_parse_object() {
+    local path="$1"
+    local depth="$2"
+    local key
+    local child_path
+    local character
+
+    AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+    aagent_json_skip_whitespace
+    if [[ "${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}" == '}' ]]; then
+        AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+        return 0
+    fi
+
+    while (( AAGENT_JSON_POS < AAGENT_JSON_LENGTH )); do
+        aagent_json_parse_string || return 1
+        key="$AAGENT_JSON_STRING"
+        aagent_json_skip_whitespace
+        [[ "${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}" == ':' ]] || return 1
+        AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+        child_path="$path#${#key}:$key"
+        aagent_json_parse_value "$child_path" "$((depth + 1))" || return 1
+        aagent_json_skip_whitespace
+        character="${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}"
+        case "$character" in
+            '}')
+                AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+                return 0
+                ;;
+            ',')
+                AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+                aagent_json_skip_whitespace
+                ;;
+            *) return 1 ;;
+        esac
+    done
+    return 1
+}
+
+aagent_json_parse_array() {
+    local path="$1"
+    local depth="$2"
+    local index=0
+    local character
+
+    AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+    aagent_json_skip_whitespace
+    if [[ "${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}" == ']' ]]; then
+        AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+        return 0
+    fi
+
+    while (( AAGENT_JSON_POS < AAGENT_JSON_LENGTH )); do
+        aagent_json_parse_value "$path#5:array#$index" "$((depth + 1))" || return 1
+        index=$((index + 1))
+        aagent_json_skip_whitespace
+        character="${AAGENT_JSON_INPUT:AAGENT_JSON_POS:1}"
+        case "$character" in
+            ']')
+                AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+                return 0
+                ;;
+            ',')
+                AAGENT_JSON_POS=$((AAGENT_JSON_POS + 1))
+                aagent_json_skip_whitespace
+                ;;
+            *) return 1 ;;
+        esac
+    done
+    return 1
+}
+
+aagent_json_parse_document() {
+    local input="$1"
+    shift
+
+    aagent_json_reset
+    AAGENT_JSON_INPUT="$input"
+    AAGENT_JSON_LENGTH="${#AAGENT_JSON_INPUT}"
+    AAGENT_JSON_ALLOW_PATHS=("$@")
+    aagent_json_parse_value "" 0 || {
+        aagent_json_fail
+        return 1
+    }
+    aagent_json_skip_whitespace
+    if (( AAGENT_JSON_POS != AAGENT_JSON_LENGTH )); then
+        aagent_json_fail
+        return 1
+    fi
+}
+
+aagent_json_get() {
+    local requested="$1"
+    local index
+    AAGENT_JSON_VALUE=""
+    AAGENT_JSON_TYPE=""
+    for ((index = 0; index < ${#AAGENT_JSON_RESULT_PATHS[@]}; index++)); do
+        if [[ "${AAGENT_JSON_RESULT_PATHS[$index]}" == "$requested" ]]; then
+            AAGENT_JSON_VALUE="${AAGENT_JSON_RESULT_VALUES[$index]}"
+            AAGENT_JSON_TYPE="${AAGENT_JSON_RESULT_TYPES[$index]}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+aagent_reset_probe_result() {
+    AAGENT_PROBE_PROVIDER="$1"
+    AAGENT_PROBE_READINESS="unknown"
+    AAGENT_PROBE_FUNDING_CLASS="unknown"
+    AAGENT_PROBE_CONFIDENCE_RANK=0
+    AAGENT_PROBE_PLAN_LABEL="Unknown"
+    AAGENT_PROBE_REASON_CODE="probe_unavailable"
+    AAGENT_PROBE_SHADOWING_VARIABLES=""
+    AAGENT_PROBE_SOURCE="none"
+    AAGENT_PROBE_STATUS="not_run"
+    AAGENT_PROBE_CAPTURE=""
+}
+
+aagent_set_probe_result() {
+    AAGENT_PROBE_READINESS="$1"
+    AAGENT_PROBE_FUNDING_CLASS="$2"
+    AAGENT_PROBE_CONFIDENCE_RANK="$3"
+    AAGENT_PROBE_PLAN_LABEL="$4"
+    AAGENT_PROBE_REASON_CODE="$5"
+    AAGENT_PROBE_SOURCE="$6"
+    AAGENT_PROBE_STATUS="$7"
+    AAGENT_PROBE_SHADOWING_VARIABLES="${8-}"
+}
+
+aagent_environment_has() {
+    [[ -n "${!1+x}" ]]
+}
+
+aagent_collect_present_environment_names() {
+    local separator=""
+    local name
+    AAGENT_PRESENT_ENVIRONMENT_NAMES=""
+    for name in "$@"; do
+        if aagent_environment_has "$name"; then
+            AAGENT_PRESENT_ENVIRONMENT_NAMES+="$separator$name"
+            separator=","
+        fi
+    done
+}
+
+aagent_run_probe_process() {
+    local executable="$1"
+    local input="$2"
+    local capture_stream="$3"
+    local input_linger_seconds="$4"
+    shift 4
+    local probe_dir=""
+    local process_id=""
+    local watchdog_id=""
+    local input_writer_id=""
+    local stdout_reader_id=""
+    local stderr_reader_id=""
+    local process_status=0
+    local stdout_bytes=0
+    local stderr_bytes=0
+
+    AAGENT_PROBE_CAPTURE=""
+    AAGENT_PROBE_PROCESS_STATUS="supervisor_failure"
+    if ! probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/aagent-probe.XXXXXX")"; then
+        return 0
+    fi
+    if ! mkfifo "$probe_dir/input.pipe" "$probe_dir/stdout.pipe" "$probe_dir/stderr.pipe"; then
+        rm -rf -- "$probe_dir"
+        return 0
+    fi
+
+    (
+        printf '%s' "$input"
+        if [[ "$input_linger_seconds" != "0" ]]; then
+            sleep "$input_linger_seconds"
+        fi
+    ) >"$probe_dir/input.pipe" &
+    input_writer_id=$!
+
+    (
+        head -c "$((AAGENT_PROBE_MAX_BYTES + 1))" >"$probe_dir/stdout"
+        cat >/dev/null
+    ) <"$probe_dir/stdout.pipe" &
+    stdout_reader_id=$!
+    (
+        head -c "$((AAGENT_PROBE_MAX_BYTES + 1))" >"$probe_dir/stderr"
+        cat >/dev/null
+    ) <"$probe_dir/stderr.pipe" &
+    stderr_reader_id=$!
+
+    (
+        exec "$executable" "$@" <"$probe_dir/input.pipe" >"$probe_dir/stdout.pipe" 2>"$probe_dir/stderr.pipe"
+    ) &
+    process_id=$!
+    (
+        sleep "$AAGENT_PROBE_TIMEOUT_SECONDS"
+        if kill -0 "$process_id" 2>/dev/null; then
+            : >"$probe_dir/timeout"
+            kill -TERM "$process_id" 2>/dev/null || true
+            sleep 0.2
+            kill -KILL "$process_id" 2>/dev/null || true
+        fi
+    ) &
+    watchdog_id=$!
+
+    if wait "$process_id" 2>/dev/null; then
+        process_status=0
+    else
+        process_status=$?
+    fi
+    kill "$watchdog_id" 2>/dev/null || true
+    wait "$watchdog_id" 2>/dev/null || true
+    wait "$input_writer_id" 2>/dev/null || true
+    wait "$stdout_reader_id" 2>/dev/null || true
+    wait "$stderr_reader_id" 2>/dev/null || true
+
+    stdout_bytes="$(wc -c <"$probe_dir/stdout" | tr -d ' ')"
+    stderr_bytes="$(wc -c <"$probe_dir/stderr" | tr -d ' ')"
+    if [[ -e "$probe_dir/timeout" ]]; then
+        AAGENT_PROBE_PROCESS_STATUS="timeout"
+    elif (( stdout_bytes > AAGENT_PROBE_MAX_BYTES || stderr_bytes > AAGENT_PROBE_MAX_BYTES )); then
+        AAGENT_PROBE_PROCESS_STATUS="truncated"
+    elif (( process_status != 0 )); then
+        AAGENT_PROBE_PROCESS_STATUS="nonzero"
+    else
+        AAGENT_PROBE_PROCESS_STATUS="success"
+        case "$capture_stream" in
+            stdout) AAGENT_PROBE_CAPTURE="$(dd if="$probe_dir/stdout" bs=65536 count=1 2>/dev/null)" ;;
+            stderr) AAGENT_PROBE_CAPTURE="$(dd if="$probe_dir/stderr" bs=65536 count=1 2>/dev/null)" ;;
+            *) AAGENT_PROBE_PROCESS_STATUS="supervisor_failure" ;;
+        esac
+    fi
+    rm -rf -- "$probe_dir"
+    return 0
+}
+
+aagent_ascii_lower() {
+    printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]'
+}
+
+aagent_probe_claude_from_environment() {
+    local probe_status="$1"
+
+    aagent_collect_present_environment_names \
+        CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
+    if [[ -n "$AAGENT_PRESENT_ENVIRONMENT_NAMES" ]]; then
+        aagent_set_probe_result ready unknown 1 "Organization route" \
+            claude_cloud_environment environment "$probe_status" "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+        return 0
+    fi
+    if aagent_environment_has ANTHROPIC_AUTH_TOKEN; then
+        aagent_set_probe_result ready unknown 1 "Bearer or gateway" \
+            claude_bearer_environment environment "$probe_status" ANTHROPIC_AUTH_TOKEN
+        return 0
+    fi
+    if aagent_environment_has ANTHROPIC_API_KEY; then
+        aagent_set_probe_result ready payg_byok 1 "Anthropic API" \
+            claude_api_environment environment "$probe_status" ANTHROPIC_API_KEY
+        return 0
+    fi
+    if aagent_environment_has CLAUDE_CODE_OAUTH_TOKEN; then
+        aagent_set_probe_result ready included_account 1 "Claude subscription token" \
+            claude_oauth_environment environment "$probe_status" CLAUDE_CODE_OAUTH_TOKEN
+        return 0
+    fi
+    return 1
+}
+
+aagent_probe_claude() {
+    local executable="$1"
+    local logged_path auth_path subscription_path provider_path key_source_path
+    local logged="" logged_type="" auth_method="" subscription_type="" api_provider="" key_source=""
+    local auth_lower="" provider_lower="" key_source_lower="" subscription_lower=""
+    local funding="included_account" label="Claude subscription"
+
+    aagent_reset_probe_result claude
+    aagent_run_probe_process "$executable" "" stdout 0 auth status --json
+    if [[ "$AAGENT_PROBE_PROCESS_STATUS" != "success" ]]; then
+        aagent_probe_claude_from_environment "$AAGENT_PROBE_PROCESS_STATUS" || \
+            aagent_set_probe_result unknown unknown 0 "Unknown" claude_probe_failed \
+                auth_status "$AAGENT_PROBE_PROCESS_STATUS"
+        AAGENT_PROBE_CAPTURE=""
+        return 0
+    fi
+
+    logged_path="$(aagent_json_make_path loggedIn)"
+    auth_path="$(aagent_json_make_path authMethod)"
+    subscription_path="$(aagent_json_make_path subscriptionType)"
+    provider_path="$(aagent_json_make_path apiProvider)"
+    key_source_path="$(aagent_json_make_path apiKeySource)"
+    if ! aagent_json_parse_document "$AAGENT_PROBE_CAPTURE" \
+        "$logged_path" "$auth_path" "$subscription_path" "$provider_path" "$key_source_path"; then
+        aagent_probe_claude_from_environment schema_failure || \
+            aagent_set_probe_result unknown unknown 0 "Unknown" claude_schema_failure auth_status schema_failure
+        AAGENT_PROBE_CAPTURE=""
+        return 0
+    fi
+    AAGENT_PROBE_CAPTURE=""
+
+    if aagent_json_get "$logged_path"; then
+        logged="$AAGENT_JSON_VALUE"
+        logged_type="$AAGENT_JSON_TYPE"
+    fi
+    if aagent_json_get "$auth_path" && [[ "$AAGENT_JSON_TYPE" == "string" ]]; then auth_method="$AAGENT_JSON_VALUE"; fi
+    if aagent_json_get "$subscription_path" && [[ "$AAGENT_JSON_TYPE" == "string" ]]; then subscription_type="$AAGENT_JSON_VALUE"; fi
+    if aagent_json_get "$provider_path" && [[ "$AAGENT_JSON_TYPE" == "string" ]]; then api_provider="$AAGENT_JSON_VALUE"; fi
+    if aagent_json_get "$key_source_path" && [[ "$AAGENT_JSON_TYPE" == "string" ]]; then key_source="$AAGENT_JSON_VALUE"; fi
+
+    if [[ "$logged_type" != "bool" ]]; then
+        aagent_probe_claude_from_environment schema_failure || \
+            aagent_set_probe_result unknown unknown 0 "Unknown" claude_schema_failure auth_status schema_failure
+        return 0
+    fi
+    if [[ "$logged" == "false" ]]; then
+        aagent_probe_claude_from_environment success || \
+            aagent_set_probe_result unusable unknown 3 "Not signed in" claude_not_logged_in auth_status success
+        return 0
+    fi
+
+    auth_lower="$(aagent_ascii_lower "$auth_method")"
+    provider_lower="$(aagent_ascii_lower "$api_provider")"
+    key_source_lower="$(aagent_ascii_lower "$key_source")"
+    subscription_lower="$(aagent_ascii_lower "$subscription_type")"
+    aagent_collect_present_environment_names \
+        CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY \
+        ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY
+
+    if [[ "$provider_lower" == *bedrock* || "$provider_lower" == *vertex* || "$provider_lower" == *foundry* ||
+        "$auth_lower" == *bedrock* || "$auth_lower" == *vertex* || "$auth_lower" == *foundry* ]]; then
+        aagent_set_probe_result ready unknown 3 "Organization route" claude_cloud_status \
+            auth_status success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+    elif [[ "$auth_lower" == *bearer* || "$auth_lower" == *gateway* || "$key_source_lower" == *helper* ]]; then
+        aagent_set_probe_result ready unknown 3 "Bearer or helper" claude_gateway_status \
+            auth_status success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+    elif [[ "$auth_lower" == *api* || "$auth_lower" == *console* || "$provider_lower" == *console* ||
+        "$key_source_lower" == *api* ]]; then
+        aagent_set_probe_result ready payg_byok 3 "Anthropic API" claude_api_status \
+            auth_status success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+    elif [[ -n "$subscription_type" || "$provider_lower" == *claude.ai* || "$auth_lower" == *claude.ai* ||
+        "$auth_lower" == *oauth* ]]; then
+        case "$subscription_lower" in
+            pro*) label="Claude Pro"; funding="included_confirmed" ;;
+            max*) label="Claude Max"; funding="included_confirmed" ;;
+            team*) label="Claude Team"; funding="included_confirmed" ;;
+            enterprise*) label="Claude Enterprise"; funding="included_confirmed" ;;
+        esac
+        aagent_set_probe_result ready "$funding" 3 "$label" claude_subscription_status \
+            auth_status success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+    else
+        aagent_set_probe_result ready unknown 3 "Claude account" claude_unknown_status auth_status success \
+            "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+    fi
+}
+
+aagent_codex_plan_label() {
+    local plan_lower
+    plan_lower="$(aagent_ascii_lower "$1")"
+    AAGENT_CODEX_PLAN_FUNDING="included_account"
+    case "$plan_lower" in
+        plus) AAGENT_CODEX_PLAN_LABEL="ChatGPT Plus"; AAGENT_CODEX_PLAN_FUNDING="included_confirmed" ;;
+        pro) AAGENT_CODEX_PLAN_LABEL="ChatGPT Pro"; AAGENT_CODEX_PLAN_FUNDING="included_confirmed" ;;
+        team) AAGENT_CODEX_PLAN_LABEL="ChatGPT Team"; AAGENT_CODEX_PLAN_FUNDING="included_confirmed" ;;
+        business) AAGENT_CODEX_PLAN_LABEL="ChatGPT Business"; AAGENT_CODEX_PLAN_FUNDING="included_confirmed" ;;
+        enterprise) AAGENT_CODEX_PLAN_LABEL="ChatGPT Enterprise"; AAGENT_CODEX_PLAN_FUNDING="included_confirmed" ;;
+        edu) AAGENT_CODEX_PLAN_LABEL="ChatGPT Edu"; AAGENT_CODEX_PLAN_FUNDING="included_confirmed" ;;
+        free) AAGENT_CODEX_PLAN_LABEL="ChatGPT Free" ;;
+        *) AAGENT_CODEX_PLAN_LABEL="ChatGPT account" ;;
+    esac
+}
+
+aagent_probe_codex_from_environment() {
+    local probe_status="$1"
+    if aagent_environment_has CODEX_API_KEY; then
+        aagent_set_probe_result ready payg_byok 1 "OpenAI API" codex_api_environment \
+            environment "$probe_status" CODEX_API_KEY
+        return 0
+    fi
+    if aagent_environment_has OPENAI_API_KEY; then
+        aagent_set_probe_result ready payg_byok 1 "OpenAI API" codex_openai_environment \
+            environment "$probe_status" OPENAI_API_KEY
+        return 0
+    fi
+    return 1
+}
+
+aagent_parse_codex_account_response() {
+    local line
+    local id_path account_path type_path plan_path requires_path credential_path
+    local response_id="" response_id_type=""
+
+    AAGENT_CODEX_ACCOUNT_FOUND=0
+    AAGENT_CODEX_ACCOUNT_TYPE=""
+    AAGENT_CODEX_ACCOUNT_TYPE_KIND="missing"
+    AAGENT_CODEX_PLAN_TYPE=""
+    AAGENT_CODEX_REQUIRES_OPENAI=""
+    AAGENT_CODEX_REQUIRES_OPENAI_KIND="missing"
+    AAGENT_CODEX_CREDENTIAL_SOURCE=""
+    id_path="$(aagent_json_make_path id)"
+    account_path="$(aagent_json_make_path result account)"
+    type_path="$(aagent_json_make_path result account type)"
+    plan_path="$(aagent_json_make_path result account planType)"
+    requires_path="$(aagent_json_make_path result requiresOpenaiAuth)"
+    credential_path="$(aagent_json_make_path result account credentialSource)"
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -n "$line" ]] || continue
+        if ! aagent_json_parse_document "$line" \
+            "$id_path" "$account_path" "$type_path" "$plan_path" "$requires_path" "$credential_path"; then
+            continue
+        fi
+        response_id=""
+        response_id_type=""
+        if aagent_json_get "$id_path"; then
+            response_id="$AAGENT_JSON_VALUE"
+            response_id_type="$AAGENT_JSON_TYPE"
+        fi
+        [[ "$response_id_type" == "number" && "$response_id" == "1" ]] || continue
+        AAGENT_CODEX_ACCOUNT_FOUND=1
+        if aagent_json_get "$account_path"; then
+            AAGENT_CODEX_ACCOUNT_TYPE_KIND="$AAGENT_JSON_TYPE"
+        fi
+        if aagent_json_get "$type_path" && [[ "$AAGENT_JSON_TYPE" == "string" ]]; then
+            AAGENT_CODEX_ACCOUNT_TYPE="$AAGENT_JSON_VALUE"
+            AAGENT_CODEX_ACCOUNT_TYPE_KIND="object"
+        fi
+        if aagent_json_get "$plan_path" && [[ "$AAGENT_JSON_TYPE" == "string" ]]; then
+            AAGENT_CODEX_PLAN_TYPE="$AAGENT_JSON_VALUE"
+        fi
+        if aagent_json_get "$requires_path"; then
+            AAGENT_CODEX_REQUIRES_OPENAI="$AAGENT_JSON_VALUE"
+            AAGENT_CODEX_REQUIRES_OPENAI_KIND="$AAGENT_JSON_TYPE"
+        fi
+        if aagent_json_get "$credential_path" && [[ "$AAGENT_JSON_TYPE" == "string" ]]; then
+            AAGENT_CODEX_CREDENTIAL_SOURCE="$AAGENT_JSON_VALUE"
+        fi
+        return 0
+    done <<<"$AAGENT_PROBE_CAPTURE"
+    return 1
+}
+
+aagent_probe_codex_fallback() {
+    local executable="$1"
+    local previous_status="$2"
+    local text=""
+
+    aagent_run_probe_process "$executable" "" stderr 0 login status
+    if [[ "$AAGENT_PROBE_PROCESS_STATUS" != "success" ]]; then
+        aagent_probe_codex_from_environment "$AAGENT_PROBE_PROCESS_STATUS" || \
+            aagent_set_probe_result unknown unknown 0 "Unknown" codex_probe_failed \
+                login_status "$AAGENT_PROBE_PROCESS_STATUS"
+        AAGENT_PROBE_CAPTURE=""
+        return 0
+    fi
+    text="$AAGENT_PROBE_CAPTURE"
+    AAGENT_PROBE_CAPTURE=""
+    case "$text" in
+        *"Logged in using ChatGPT"*)
+            aagent_collect_present_environment_names CODEX_API_KEY
+            aagent_set_probe_result ready unknown 2 "ChatGPT account" codex_login_text_chatgpt \
+                login_status fallback_success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+            ;;
+        *"Logged in using an API key"*)
+            aagent_set_probe_result ready payg_byok 2 "OpenAI API" codex_login_text_api \
+                login_status fallback_success CODEX_API_KEY
+            ;;
+        *"Not logged in"*)
+            aagent_probe_codex_from_environment fallback_success || \
+                aagent_set_probe_result unusable unknown 2 "Not signed in" codex_not_logged_in \
+                    login_status fallback_success
+            ;;
+        *)
+            aagent_probe_codex_from_environment schema_failure || \
+                aagent_set_probe_result unknown unknown 0 "Unknown" codex_fallback_schema_failure \
+                    login_status schema_failure
+            ;;
+    esac
+    : "$previous_status"
+}
+
+aagent_probe_codex() {
+    local executable="$1"
+    local protocol_input
+    local account_lower=""
+
+    aagent_reset_probe_result codex
+    protocol_input=$'{"method":"initialize","id":0,"params":{"clientInfo":{"name":"aagent","title":"aagent","version":"0.1.0"}}}\n{"method":"initialized","params":{}}\n{"method":"account/read","id":1,"params":{"refreshToken":false}}\n'
+    aagent_run_probe_process "$executable" "$protocol_input" stdout 0.5 app-server
+    if [[ "$AAGENT_PROBE_PROCESS_STATUS" != "success" ]]; then
+        aagent_probe_codex_fallback "$executable" "$AAGENT_PROBE_PROCESS_STATUS"
+        return 0
+    fi
+    if ! aagent_parse_codex_account_response; then
+        AAGENT_PROBE_CAPTURE=""
+        aagent_probe_codex_fallback "$executable" protocol_mismatch
+        return 0
+    fi
+    AAGENT_PROBE_CAPTURE=""
+
+    if [[ "$AAGENT_CODEX_REQUIRES_OPENAI_KIND" != "bool" ]]; then
+        aagent_probe_codex_fallback "$executable" schema_failure
+        return 0
+    fi
+    account_lower="$(aagent_ascii_lower "$AAGENT_CODEX_ACCOUNT_TYPE")"
+    case "$account_lower" in
+        chatgpt)
+            aagent_codex_plan_label "$AAGENT_CODEX_PLAN_TYPE"
+            aagent_collect_present_environment_names CODEX_API_KEY
+            aagent_set_probe_result ready "$AAGENT_CODEX_PLAN_FUNDING" 4 "$AAGENT_CODEX_PLAN_LABEL" \
+                codex_chatgpt_account app_server success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+            ;;
+        apikey)
+            aagent_set_probe_result ready payg_byok 4 "OpenAI API" codex_api_account app_server success
+            ;;
+        amazonbedrock)
+            aagent_set_probe_result ready unknown 4 "Amazon Bedrock" codex_bedrock_account app_server success
+            ;;
+        '')
+            if [[ "$AAGENT_CODEX_ACCOUNT_TYPE_KIND" == "null" && "$AAGENT_CODEX_REQUIRES_OPENAI" == "true" ]]; then
+                aagent_probe_codex_from_environment success || \
+                    aagent_set_probe_result unusable unknown 4 "Not signed in" codex_not_logged_in app_server success
+            elif [[ "$AAGENT_CODEX_REQUIRES_OPENAI" == "false" ]]; then
+                aagent_set_probe_result ready unknown 4 "Custom provider" codex_custom_provider app_server success
+            else
+                aagent_probe_codex_fallback "$executable" schema_failure
+            fi
+            ;;
+        *)
+            aagent_set_probe_result ready unknown 4 "Codex account" codex_unknown_account app_server success
+            ;;
+    esac
+}
+
+aagent_probe_opencode_from_environment() {
+    local probe_status="$1"
+    aagent_collect_present_environment_names \
+        OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY
+    if [[ -n "$AAGENT_PRESENT_ENVIRONMENT_NAMES" ]]; then
+        aagent_set_probe_result ready unknown 1 "Provider credential" opencode_environment_auth \
+            environment "$probe_status" "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+        return 0
+    fi
+    return 1
+}
+
+aagent_probe_opencode() {
+    local executable="$1"
+    local text=""
+    aagent_reset_probe_result opencode
+    aagent_run_probe_process "$executable" "" stdout 0 auth list
+    if [[ "$AAGENT_PROBE_PROCESS_STATUS" != "success" ]]; then
+        aagent_probe_opencode_from_environment "$AAGENT_PROBE_PROCESS_STATUS" || \
+            aagent_set_probe_result unknown unknown 0 "Unknown" opencode_probe_failed \
+                auth_list "$AAGENT_PROBE_PROCESS_STATUS"
+        AAGENT_PROBE_CAPTURE=""
+        return 0
+    fi
+    text="$AAGENT_PROBE_CAPTURE"
+    AAGENT_PROBE_CAPTURE=""
+    if [[ -n "$(aagent_trim_config_whitespace "$text")" && "$text" != *"No credentials"* ]]; then
+        aagent_set_probe_result ready unknown 2 "OpenCode credential" opencode_auth_list \
+            auth_list success
+    else
+        aagent_probe_opencode_from_environment success || \
+            aagent_set_probe_result unknown unknown 2 "No confirmed credential" opencode_no_auth \
+                auth_list success
+    fi
+}
+
+aagent_read_bounded_file() {
+    local path="$1"
+    local bytes=0
+    AAGENT_PROBE_CAPTURE=""
+    AAGENT_PROBE_FILE_STATUS="not_found"
+    [[ -e "$path" ]] || return 0
+    if [[ ! -f "$path" || ! -r "$path" ]]; then
+        AAGENT_PROBE_FILE_STATUS="read_error"
+        return 0
+    fi
+    bytes="$(wc -c <"$path" | tr -d ' ')"
+    if (( bytes > AAGENT_PROBE_MAX_BYTES )); then
+        AAGENT_PROBE_FILE_STATUS="truncated"
+        return 0
+    fi
+    if ! AAGENT_PROBE_CAPTURE="$(dd if="$path" bs=65536 count=1 2>/dev/null)"; then
+        AAGENT_PROBE_CAPTURE=""
+        AAGENT_PROBE_FILE_STATUS="read_error"
+        return 0
+    fi
+    AAGENT_PROBE_FILE_STATUS="success"
+}
+
+aagent_probe_gemini_from_environment() {
+    local probe_status="$1"
+    aagent_collect_present_environment_names GEMINI_API_KEY GOOGLE_API_KEY
+    if [[ -n "$AAGENT_PRESENT_ENVIRONMENT_NAMES" ]]; then
+        aagent_set_probe_result ready payg_byok 1 "Gemini API" gemini_api_environment \
+            environment "$probe_status" "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+        return 0
+    fi
+    aagent_collect_present_environment_names \
+        GOOGLE_APPLICATION_CREDENTIALS GOOGLE_GENAI_USE_VERTEXAI GOOGLE_GENAI_USE_GCA \
+        GOOGLE_GEMINI_BASE_URL CLOUD_SHELL GEMINI_CLI_USE_COMPUTE_ADC
+    if [[ -n "$AAGENT_PRESENT_ENVIRONMENT_NAMES" ]]; then
+        aagent_set_probe_result ready unknown 1 "Google organization route" gemini_cloud_environment \
+            environment "$probe_status" "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+        return 0
+    fi
+    return 1
+}
+
+aagent_probe_gemini() {
+    local settings_path=""
+    local selected_path=""
+    local selected_type=""
+    local selected_lower=""
+
+    aagent_reset_probe_result gemini
+    if [[ -n "${HOME-}" ]]; then settings_path="$HOME/.gemini/settings.json"; fi
+    if [[ -z "$settings_path" ]]; then
+        aagent_probe_gemini_from_environment not_found || \
+            aagent_set_probe_result unknown unknown 0 "Unknown" gemini_settings_missing user_settings not_found
+        return 0
+    fi
+    aagent_read_bounded_file "$settings_path"
+    if [[ "$AAGENT_PROBE_FILE_STATUS" != "success" ]]; then
+        aagent_probe_gemini_from_environment "$AAGENT_PROBE_FILE_STATUS" || \
+            aagent_set_probe_result unknown unknown 0 "Unknown" gemini_settings_unavailable \
+                user_settings "$AAGENT_PROBE_FILE_STATUS"
+        AAGENT_PROBE_CAPTURE=""
+        return 0
+    fi
+    selected_path="$(aagent_json_make_path security auth selectedType)"
+    if ! aagent_json_parse_document "$AAGENT_PROBE_CAPTURE" "$selected_path"; then
+        AAGENT_PROBE_CAPTURE=""
+        aagent_probe_gemini_from_environment schema_failure || \
+            aagent_set_probe_result unknown unknown 0 "Unknown" gemini_settings_schema_failure \
+                user_settings schema_failure
+        return 0
+    fi
+    AAGENT_PROBE_CAPTURE=""
+    if aagent_json_get "$selected_path" && [[ "$AAGENT_JSON_TYPE" == "string" ]]; then
+        selected_type="$AAGENT_JSON_VALUE"
+    fi
+    selected_lower="$(aagent_ascii_lower "$selected_type")"
+    case "$selected_lower" in
+        oauth-personal)
+            aagent_set_probe_result ready included_account 4 "Google account" gemini_oauth_personal \
+                user_settings success
+            ;;
+        gemini-api-key)
+            aagent_collect_present_environment_names GEMINI_API_KEY GOOGLE_API_KEY
+            aagent_set_probe_result ready payg_byok 4 "Gemini API" gemini_api_key \
+                user_settings success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+            ;;
+        vertex-ai|cloud-shell|compute-default-credentials|gateway)
+            aagent_collect_present_environment_names \
+                GOOGLE_APPLICATION_CREDENTIALS GOOGLE_GENAI_USE_VERTEXAI GOOGLE_GEMINI_BASE_URL
+            aagent_set_probe_result ready unknown 4 "Google organization route" gemini_organization_auth \
+                user_settings success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+            ;;
+        *)
+            aagent_probe_gemini_from_environment schema_failure || \
+                aagent_set_probe_result unknown unknown 0 "Unknown" gemini_unknown_auth_type \
+                    user_settings schema_failure
+            ;;
+    esac
+}
+
+aagent_probe_amp() {
+    aagent_reset_probe_result amp
+    if aagent_environment_has AMP_API_KEY; then
+        aagent_set_probe_result ready unknown 1 "Amp account credential" amp_environment_auth \
+            environment environment_only AMP_API_KEY
+    else
+        aagent_set_probe_result unknown unknown 0 "Unknown" amp_no_passive_probe none skipped_no_passive
+    fi
+}
+
+aagent_probe_provider() {
+    local provider="$1"
+    local executable="$2"
+    case "$provider" in
+        claude) aagent_probe_claude "$executable" ;;
+        codex) aagent_probe_codex "$executable" ;;
+        opencode) aagent_probe_opencode "$executable" ;;
+        gemini) aagent_probe_gemini ;;
+        amp) aagent_probe_amp ;;
+        *)
+            aagent_reset_probe_result "$provider"
+            aagent_set_probe_result unknown unknown 0 "Unknown" unsupported_probe none unsupported
+            ;;
+    esac
+}
+
 aagent_resolve_discovery_target() {
     local executable="$1"
     local override_name="$2"

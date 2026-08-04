@@ -24,9 +24,16 @@ for nonsecret sentinels.
 Run responses are controlled with `AAGENT_FAKE_RUN_STDOUT`,
 `AAGENT_FAKE_RUN_STDERR`, `AAGENT_FAKE_RUN_STATUS`, and
 `AAGENT_FAKE_RUN_DELAY`. Probe responses use the corresponding
-`AAGENT_FAKE_PROBE_*` variables. `AAGENT_FAKE_INVOCATION_KIND` can force a
-fixture into `run` or `probe` mode; otherwise documented status command shapes
-for Claude, Codex, and OpenCode are recognized automatically.
+`AAGENT_FAKE_PROBE_*` variables. Tests that exercise multiple commands from one
+adapter can override those with `AAGENT_FAKE_CLAUDE_*`,
+`AAGENT_FAKE_CODEX_APP_SERVER_*`, `AAGENT_FAKE_CODEX_LOGIN_*`, and
+`AAGENT_FAKE_OPENCODE_*`. `AAGENT_FAKE_INVOCATION_KIND` can force a fixture
+into `run` or `probe` mode; otherwise documented status command shapes for
+Claude, Codex, and OpenCode are recognized automatically.
+
+`AAGENT_FAKE_PROBE_BYTES` and the profile-specific `*_BYTES` variants emit a
+generated response of the requested size without placing a huge fixture in the
+environment. Probe-supervisor tests use this to verify bounded capture.
 
 This protocol supports valid, missing-field, malformed, delayed, non-zero,
 secret-bearing, and PII-bearing probe fixtures while keeping probe counts

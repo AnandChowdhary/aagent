@@ -121,11 +121,32 @@ fi
     fi
 } > "$record_file"
 
+output_bytes=0
 if [[ "$kind" == "probe" ]]; then
     delay="${AAGENT_FAKE_PROBE_DELAY:-0}"
     stdout="${AAGENT_FAKE_PROBE_STDOUT:-}"
     stderr="${AAGENT_FAKE_PROBE_STDERR:-}"
     status="${AAGENT_FAKE_PROBE_STATUS:-0}"
+    probe_profile=""
+    case "$provider:${1:-}:${2:-}" in
+        claude:auth:status) probe_profile="CLAUDE" ;;
+        codex:app-server:*) probe_profile="CODEX_APP_SERVER" ;;
+        codex:login:status) probe_profile="CODEX_LOGIN" ;;
+        opencode:auth:list) probe_profile="OPENCODE" ;;
+    esac
+    if [[ -n "$probe_profile" ]]; then
+        delay_name="AAGENT_FAKE_${probe_profile}_DELAY"
+        stdout_name="AAGENT_FAKE_${probe_profile}_STDOUT"
+        stderr_name="AAGENT_FAKE_${probe_profile}_STDERR"
+        status_name="AAGENT_FAKE_${probe_profile}_STATUS"
+        bytes_name="AAGENT_FAKE_${probe_profile}_BYTES"
+        if [[ -n "${!delay_name+x}" ]]; then delay="${!delay_name}"; fi
+        if [[ -n "${!stdout_name+x}" ]]; then stdout="${!stdout_name}"; fi
+        if [[ -n "${!stderr_name+x}" ]]; then stderr="${!stderr_name}"; fi
+        if [[ -n "${!status_name+x}" ]]; then status="${!status_name}"; fi
+        if [[ -n "${!bytes_name+x}" ]]; then output_bytes="${!bytes_name}"; fi
+    fi
+    output_bytes="${output_bytes:-${AAGENT_FAKE_PROBE_BYTES:-0}}"
 else
     delay="${AAGENT_FAKE_RUN_DELAY:-0}"
     stdout="${AAGENT_FAKE_RUN_STDOUT:-}"
@@ -140,6 +161,9 @@ if [[ "$delay" != "0" ]]; then
     delay_pid=""
 fi
 
+if [[ "$output_bytes" =~ ^[0-9]+$ ]] && (( output_bytes > 0 )); then
+    head -c "$output_bytes" /dev/zero | tr '\0' x
+fi
 printf '%s' "$stdout"
 printf '%s' "$stderr" >&2
 

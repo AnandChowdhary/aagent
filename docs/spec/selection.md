@@ -132,6 +132,9 @@ the failed process may already have changed files or consumed paid tokens.
 
 ## Probe rules
 
+The concrete result schema, supervisor bounds, confidence ranks, and Tier 1
+classification table are defined in [probes.md](probes.md).
+
 Normal selection may start installed CLIs only through documented, passive
 status interfaces. Probes must:
 
