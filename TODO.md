@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: Phase 3 complete; Phase 4 next
+Current milestone: Phase 4 complete; Phase 5 next
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -249,51 +249,54 @@ Deliverable: inspectable metadata and deterministic installed-provider results
 Dependencies: Phase 3
 Deliverable: one safe, platform-specific process launcher used by every adapter
 
-- [ ] **P4-01 Define a launch plan value.**
+- [x] **P4-01 Define a launch plan value.**
   Hold executable, argv array, cwd, stdin mode, child-only environment changes,
   and redacted display metadata without constructing a command string.
 
-- [ ] **P4-02 Implement Bash array-based launch.**
+- [x] **P4-02 Implement Bash array-based launch.**
   Invoke the resolved executable directly from an argv array; use `exec` when
   no wrapper cleanup or mediation remains necessary.
 
-- [ ] **P4-03 Implement PowerShell argument-safe launch.**
+- [x] **P4-03 Implement PowerShell argument-safe launch.**
   Preserve logical arguments without expression evaluation and return the
   actual native process exit code across Windows PowerShell quoting cases.
 
-- [ ] **P4-04 Apply the requested working directory.**
+- [x] **P4-04 Apply the requested working directory.**
   Change only the child launch context and leave the caller's shell directory
   unchanged after wrapper completion.
 
-- [ ] **P4-05 Preserve provider stdout and stderr.**
+- [x] **P4-05 Preserve provider stdout and stderr.**
   Do not merge, parse, buffer to completion, strip ANSI, or move provider
   diagnostics between streams during a normal run.
 
-- [ ] **P4-06 Preserve provider status exactly.**
+- [x] **P4-06 Preserve provider status exactly.**
   Test `0`, common non-zero values, provider-defined values above `64`, and
   signal-derived statuses without wrapper remapping.
 
-- [ ] **P4-07 Propagate interruption and termination.**
+- [x] **P4-07 Propagate interruption and termination.**
   Verify Ctrl-C/interrupt reaches the child, no orphan remains, and Bash uses
   conventional signal status where CI supports the assertion.
 
-- [ ] **P4-08 Guarantee at-most-one run launch.**
+- [x] **P4-08 Guarantee at-most-one run launch.**
   Once a launch begins, any authentication, rate-limit, tool, or generic
   failure returns directly; no other provider receives the prompt.
 
-- [ ] **P4-09 Keep wrapper notices on stderr.**
+- [x] **P4-09 Keep wrapper notices on stderr.**
   Selection and environment notices must never contaminate provider stdout;
   `--quiet` suppresses wrapper notices only.
 
-- [ ] **P4-10 Add a redacted dry-run renderer.**
+- [x] **P4-10 Add a redacted dry-run renderer.**
   Render executable and argv in a platform-appropriate escaped form without
   starting the provider or displaying environment values or piped context.
 
 ### Phase 4 exit gate
 
-- [ ] A generic fake provider proves cwd, stdin, stream separation, hostile
+- [x] A generic fake provider proves cwd, stdin, stream separation, hostile
   argv safety, exact status, signal behavior, dry-run non-launch, and no
   failover in both runners.
+
+  Evidence: [PR #4](https://github.com/AnandChowdhary/aagent/pull/4) and
+  [cross-platform CI run 30950678475](https://github.com/AnandChowdhary/aagent/actions/runs/30950678475).
 
 ## Phase 5 - Tier 1 invocation adapters
 
