@@ -2,11 +2,11 @@ $ErrorActionPreference = "Stop"
 
 function Show-Help {
     @'
-Agent
+aagent
 Run any CLI coding agent with a single command.
 
 Usage:
-  agent [options]
+  aagent [options]
 
 Options:
   -h, --help  Show this help message
@@ -29,8 +29,8 @@ switch ($firstArgument) {
         break
     }
     default {
-        [Console]::Error.WriteLine("agent: unknown argument: $firstArgument")
-        [Console]::Error.WriteLine("Try 'agent --help' for more information.")
+        [Console]::Error.WriteLine("aagent: unknown argument: $firstArgument")
+        [Console]::Error.WriteLine("Try 'aagent --help' for more information.")
         exit 1
     }
 }

@@ -1,4 +1,4 @@
-# Agent CLI specification
+# aagent CLI specification
 
 Status: Draft  
 Research date: 2026-08-04  
@@ -6,18 +6,18 @@ Implementation scope: None in this change
 
 ## 1. Summary
 
-`agent` is a small, cross-platform command-line wrapper that runs an installed
+`aagent` is a small, cross-platform command-line wrapper that runs an installed
 coding-agent CLI in non-interactive mode.
 
 The primary experience is:
 
 ```console
-$ agent "say hello"
+$ aagent "say hello"
 Hello!
 ```
 
 The user may have Claude Code, Codex CLI, OpenCode, Amp, Gemini CLI, or another
-supported coding agent installed. `agent` discovers compatible executables,
+supported coding agent installed. `aagent` discovers compatible executables,
 chooses one deterministically, passes it the prompt, and preserves its output
 and exit status.
 
@@ -29,7 +29,7 @@ remain owned by the selected agent.
 
 The first release must:
 
-1. Make `agent "prompt"` work when at least one supported CLI is installed and
+1. Make `aagent "prompt"` work when at least one supported CLI is installed and
    already configured.
 2. Support macOS and Linux in Bash, Windows in PowerShell, and Git Bash or WSL
    where the installed provider supports them.
@@ -69,7 +69,7 @@ Every Tier 1 CLI has a documented one-shot form:
 | Amp | `amp --execute PROMPT` | argument and stdin | streaming JSON | yes |
 | Gemini CLI | `gemini --prompt PROMPT` | argument and stdin | JSON or streaming JSON | yes |
 
-This gives `agent` a reliable minimum contract: choose a process, send one
+This gives `aagent` a reliable minimum contract: choose a process, send one
 prompt, wait for completion, and return its output and status.
 
 ### 4.2 The rest is not actually uniform
@@ -106,11 +106,11 @@ runtime semantics.
 ### 5.1 Synopsis
 
 ```text
-agent [OPTIONS] [PROMPT...]
-agent providers
-agent doctor [PROVIDER]
-agent --help
-agent --version
+aagent [OPTIONS] [PROMPT...]
+aagent providers
+aagent doctor [PROVIDER]
+aagent --help
+aagent --version
 ```
 
 Core options:
@@ -127,12 +127,12 @@ Core options:
 Examples:
 
 ```bash
-agent "say hello"
-agent --provider codex "explain this repository"
-agent --provider claude --model sonnet "review the current diff"
-git diff | agent "summarize these changes"
-agent --cwd ../service "run the tests and explain any failures"
-agent --provider codex "fix the tests" -- --sandbox workspace-write
+aagent "say hello"
+aagent --provider codex "explain this repository"
+aagent --provider claude --model sonnet "review the current diff"
+git diff | aagent "summarize these changes"
+aagent --cwd ../service "run the tests and explain any failures"
+aagent --provider codex "fix the tests" -- --sandbox workspace-write
 ```
 
 Unknown wrapper options before `--` are usage errors. Arguments after `--` are
@@ -157,7 +157,7 @@ by the selected CLI; they are never evaluated as shell source.
    <stdin>
    ```
 
-4. With neither a prompt nor piped stdin, `agent` prints concise usage and exits
+4. With neither a prompt nor piped stdin, `aagent` prints concise usage and exits
    with a usage error. It never opens an interactive provider UI accidentally.
 5. An empty prompt is a usage error.
 
@@ -170,23 +170,23 @@ through `sh -c` or PowerShell expression evaluation.
 Selection uses this precedence:
 
 1. `--provider ID`
-2. `AGENT_PROVIDER`
+2. `AAGENT_PROVIDER`
 3. `provider` in the user configuration file
-4. the first installed provider in `AGENT_PRIORITY`
+4. the first installed provider in `AAGENT_PRIORITY`
 5. the first installed provider in the configured `priority` list
 6. the first installed provider in the built-in priority list
 
 The initial built-in list is:
 
 ```text
-claude,codex,opencode,amp,gemini,droid,copilot,goose,qwen,kimi,cline,crush,vibe,kiro,aider
+claude,codex,opencode,amp,gemini,droid,copilot,goose,qwen,kimi,cline,crush,vibe,kiro,cursor,aider
 ```
 
 The order is a compatibility default, not a quality ranking. It begins with the
 five Tier 1 adapters. A selected provider is reported to stderr:
 
 ```text
-agent: using claude (/usr/local/bin/claude)
+aagent: using claude (/usr/local/bin/claude)
 ```
 
 `--quiet` suppresses only this wrapper-owned notice. It does not suppress
@@ -194,7 +194,7 @@ provider diagnostics.
 
 An explicit provider that is missing is an error; it does not fall through to
 another provider. Automatic selection skips missing executables, but after an
-agent process starts, `agent` never retries the prompt with a different agent.
+agent process starts, `aagent` never retries the prompt with a different agent.
 The failed process may already have changed files or consumed paid tokens.
 
 ### 5.4 Discovery
@@ -206,9 +206,9 @@ script commands, not aliases or functions.
 Overrides use the form:
 
 ```text
-AGENT_CLAUDE_BIN=/custom/path/claude
-AGENT_CODEX_BIN=/custom/path/codex
-AGENT_CURSOR_BIN=/custom/path/cursor-agent
+AAGENT_CLAUDE_BIN=/custom/path/claude
+AAGENT_CODEX_BIN=/custom/path/codex
+AAGENT_CURSOR_BIN=/custom/path/cursor-agent
 ```
 
 Discovery verifies that the resolved target exists and is executable. It does
@@ -219,8 +219,8 @@ during an ordinary run.
 
 Configuration locations:
 
-- macOS/Linux: `${XDG_CONFIG_HOME:-$HOME/.config}/agent/config`
-- Windows: `%APPDATA%\agent\config`
+- macOS/Linux: `${XDG_CONFIG_HOME:-$HOME/.config}/aagent/config`
+- Windows: `%APPDATA%\aagent\config`
 
 The file is a strict `key=value` format with only documented keys:
 
@@ -230,7 +230,7 @@ priority=codex,claude,gemini,opencode,amp
 ```
 
 Whitespace around keys and values is ignored. Unknown keys are errors in
-`agent doctor` and warnings during normal invocation. The file is parsed as
+`aagent doctor` and warnings during normal invocation. The file is parsed as
 data and is never sourced. Project-local configuration is deferred because
 loading executable or behavioral configuration from an untrusted repository
 would create a security boundary the MVP does not need.
@@ -239,7 +239,7 @@ Environment variables override the file. Command-line options override both.
 
 ### 5.6 Model selection
 
-`--model ID` forwards an opaque, provider-native identifier. `agent` does not
+`--model ID` forwards an opaque, provider-native identifier. `aagent` does not
 translate model families between vendors or check availability.
 
 If an adapter has no documented per-run model option, `--model` fails before
@@ -254,13 +254,13 @@ sandboxes, budgets, tools, reasoning effort, and native output formats.
 Examples:
 
 ```bash
-agent -P claude "update the changelog" -- --allowedTools Read,Edit
-agent -P codex "fix the issue" -- --sandbox workspace-write
-agent -P gemini "apply the refactor" -- --approval-mode auto_edit
-agent -P droid "fix formatting" -- --auto low
+aagent -P claude "update the changelog" -- --allowedTools Read,Edit
+aagent -P codex "fix the issue" -- --sandbox workspace-write
+aagent -P gemini "apply the refactor" -- --approval-mode auto_edit
+aagent -P droid "fix formatting" -- --auto low
 ```
 
-`agent` must document that native options are provider-specific and may grant
+`aagent` must document that native options are provider-specific and may grant
 substantial access. The wrapper must never add a native permission-bypass flag
 on its own.
 
@@ -276,7 +276,7 @@ For the MVP, stdout and stderr are passed through from the provider:
 This preserves streaming and keeps the Bash and PowerShell implementations
 dependency-free. Most headless text modes are suitable for command substitution,
 but exact progress behavior remains provider-native and is listed by
-`agent doctor`.
+`aagent doctor`.
 
 `--dry-run` is the exception: it prints a shell-appropriate, redacted display
 of the resolved executable and arguments without launching the process. It must
@@ -284,7 +284,7 @@ not print environment secrets.
 
 ### 5.9 Exit status and signals
 
-If a provider starts, `agent` exits with that provider's exact status. It does
+If a provider starts, `aagent` exits with that provider's exact status. It does
 not remap authentication, rate-limit, turn-limit, or tool-denial failures.
 
 Wrapper-owned statuses follow `sysexits` values where they apply:
@@ -378,7 +378,7 @@ logic must not leak into global argument parsing.
   the stream schema.
 - Sessions: threads can be continued in execute mode.
 - Permissions: Amp documents that it does not ask permission before using tools
-  by default. Settings or plugins may customize behavior. `agent` must not imply
+  by default. Settings or plugins may customize behavior. `aagent` must not imply
   that omitting an unsafe flag makes this equivalent to a read-only provider.
 - Authentication: unattended execution can use `AMP_API_KEY`.
 
@@ -408,29 +408,13 @@ logic must not leak into global argument parsing.
 | `crush` | `crush run PROMPT` | no documented stable JSON mode | Native permission prompts remain unless `--yolo` is explicitly used. |
 | `vibe` | `vibe --prompt PROMPT` | JSON and streaming NDJSON | Supports auto-approval, tool restrictions, budgets, sessions, and configurable agents. |
 | `kiro` | `kiro-cli chat --no-interactive PROMPT` | no documented stable JSON mode | Headless use requires an API key; trust flags control pre-approved tools. |
+| `cursor` | `agent --print PROMPT` | JSON and stream JSON | Changes are proposed unless the user explicitly supplies Cursor's force/yolo option. |
 | `aider` | `aider --message PROMPT` | no documented stable JSON mode | Automatically commits changes by default. An adapter must expose this fact and must not silently broaden Git side effects. |
 
 Tier 2 means the official interface is suitable, but its adapter is not required
 to call the initial implementation complete.
 
-### 6.4 Special case: Cursor CLI
-
-Cursor's CLI executable is also named `agent`, and its headless form is
-`agent --print PROMPT`. Installing this project at the same `PATH` location can
-mask or overwrite Cursor's executable, and naïve discovery can recursively
-invoke the wrapper itself.
-
-Until the installer and discovery behavior are explicitly designed for this
-collision, Cursor is supported only through `AGENT_CURSOR_BIN` pointing to a
-distinct executable or user-created shim. The adapter must canonicalize both
-paths and reject its own executable. The installer must never overwrite an
-existing non-project `agent` command without an explicit user decision.
-
-Cursor's native headless output supports text, JSON, and streaming JSON.
-Without its force/yolo option, changes are proposed rather than applied. The
-wrapper must preserve that default.
-
-### 6.5 Explicit exclusions
+### 6.4 Explicit exclusions
 
 - **OpenHands:** the current project centers on Agent Server/Agent Canvas and
   ACP-compatible backends rather than a stable local one-shot CLI matching this
@@ -458,7 +442,7 @@ The wrapper must:
 - never append `--yolo`, `--dangerously-skip-permissions`,
   `--skip-permissions-unsafe`, `--allow-all-tools`, `--auto`, or equivalent;
 - never answer an approval prompt on the user's behalf;
-- display known provider safety notes in `agent doctor`;
+- display known provider safety notes in `aagent doctor`;
 - treat native options after `--` as an explicit user choice;
 - avoid silently changing provider configuration files; and
 - never retry a failed run with another provider.
@@ -472,7 +456,7 @@ omitting a vendor's yolo flag is not evidence of read-only execution.
 
 ## 8. Introspection
 
-### 8.1 `agent providers`
+### 8.1 `aagent providers`
 
 Lists every known adapter, resolution path, and availability without logging in
 or contacting the network:
@@ -485,7 +469,7 @@ gemini    missing      gemini
 cursor    override     /custom/bin/cursor-agent
 ```
 
-### 8.2 `agent doctor [PROVIDER]`
+### 8.2 `aagent doctor [PROVIDER]`
 
 Runs non-mutating diagnostics:
 
@@ -566,7 +550,7 @@ Required cases:
 - explicit missing provider;
 - executable overrides;
 - a selected provider that fails authentication, proving no failover occurs;
-- Cursor's binary collision and self-recursion prevention; and
+- discovery of Cursor's separate `agent` executable; and
 - `--quiet` and `--dry-run` behavior.
 
 ### 10.3 Security tests
@@ -592,7 +576,7 @@ drift without running a paid prompt.
 
 The implementation following this specification is complete when:
 
-1. Tier 1 adapters work through `agent "say hello"` using fake-executable
+1. Tier 1 adapters work through `aagent "say hello"` using fake-executable
    contract tests on every supported runner.
 2. Explicit and automatic provider selection follow the documented precedence.
 3. The chosen provider is visible on stderr unless `--quiet` is used.
@@ -602,9 +586,10 @@ The implementation following this specification is complete when:
    user's explicit `--` separator.
 6. Missing providers, unsupported model flags, invalid configuration, and empty
    input produce stable wrapper errors.
-7. `agent providers` and `agent doctor` are non-mutating and do not trigger
+7. `aagent providers` and `aagent doctor` are non-mutating and do not trigger
    login.
-8. The Cursor collision cannot recurse into or overwrite the wrapper.
+8. Cursor's `agent` executable can be discovered without being confused with
+   the `aagent` wrapper.
 9. Existing `--help`, installation, and cross-platform test behavior remains
    intact.
 

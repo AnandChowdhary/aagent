@@ -1,23 +1,23 @@
-# Agent
+# aagent
 
 Run any CLI coding agent with a single command.
 
-Agent is an intentionally small scaffold for now. The Bash and PowerShell runners only support `--help`.
+`aagent` is an intentionally small scaffold for now. The Bash and PowerShell runners only support `--help`.
 
 ## Installation
 
 On macOS and Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AnandChowdhary/agent/main/install.sh | bash
-agent --help
+curl -fsSL https://raw.githubusercontent.com/AnandChowdhary/aagent/main/install.sh | bash
+aagent --help
 ```
 
 On Windows with PowerShell 7:
 
 ```powershell
-irm https://raw.githubusercontent.com/AnandChowdhary/agent/main/install.ps1 | iex
-pwsh ~/.local/bin/agent.ps1 --help
+irm https://raw.githubusercontent.com/AnandChowdhary/aagent/main/install.ps1 | iex
+pwsh ~/.local/bin/aagent.ps1 --help
 ```
 
 ## Manual usage
@@ -25,13 +25,13 @@ pwsh ~/.local/bin/agent.ps1 --help
 Run the Bash script directly on macOS, Linux, or Windows with Git Bash or WSL:
 
 ```bash
-./agent.sh --help
+./aagent.sh --help
 ```
 
 Run the native PowerShell script on Windows:
 
 ```powershell
-pwsh ./agent.ps1 --help
+pwsh ./aagent.ps1 --help
 ```
 
 ## Development
@@ -39,13 +39,13 @@ pwsh ./agent.ps1 --help
 Run the Bash smoke tests:
 
 ```bash
-bash ./tests/test_agent.sh
+bash ./tests/test_aagent.sh
 ```
 
 Run the PowerShell smoke tests:
 
 ```powershell
-pwsh ./tests/test_agent.ps1
+pwsh ./tests/test_aagent.ps1
 ```
 
 GitHub Actions runs the Bash suite on Linux, macOS, and Windows, and the PowerShell suite on Windows.

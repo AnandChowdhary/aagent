@@ -4,11 +4,11 @@ set -euo pipefail
 
 print_help() {
     cat <<'EOF'
-Agent
+aagent
 Run any CLI coding agent with a single command.
 
 Usage:
-  agent [options]
+  aagent [options]
 
 Options:
   -h, --help  Show this help message
@@ -20,8 +20,8 @@ case "${1:-}" in
         print_help
         ;;
     *)
-        printf 'agent: unknown argument: %s\n' "$1" >&2
-        printf "Try 'agent --help' for more information.\n" >&2
+        printf 'aagent: unknown argument: %s\n' "$1" >&2
+        printf "Try 'aagent --help' for more information.\n" >&2
         exit 1
         ;;
 esac
