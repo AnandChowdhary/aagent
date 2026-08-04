@@ -4,6 +4,11 @@ Run any CLI coding agent with a single command.
 
 `aagent` is an intentionally small scaffold for now. The Bash and PowerShell runners only support `--help`.
 
+## Specification
+
+- [SPEC.md](SPEC.md) is the product contract and index to the focused specification documents.
+- [TODO.md](TODO.md) is the authoritative, phase-gated implementation ledger.
+
 ## Installation
 
 On macOS and Linux:
