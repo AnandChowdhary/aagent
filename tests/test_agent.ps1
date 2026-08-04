@@ -55,3 +55,4 @@ try {
 }
 
 Write-Host "All PowerShell tests passed."
+exit 0
