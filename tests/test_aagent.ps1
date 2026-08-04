@@ -5,6 +5,7 @@ $aagentScript = Join-Path $projectRoot "aagent.ps1"
 $installScript = Join-Path $projectRoot "install.ps1"
 $fakeProvider = Join-Path $projectRoot "tests/helpers/fake-provider.ps1"
 $parserTest = Join-Path $projectRoot "tests/test_parser.ps1"
+$discoveryTest = Join-Path $projectRoot "tests/test_discovery.ps1"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 function Assert-Equal($Actual, $Expected, [string] $Message) {
@@ -90,6 +91,7 @@ Assert-PowerShellSyntax $aagentScript
 Assert-PowerShellSyntax $installScript
 Assert-PowerShellSyntax $fakeProvider
 Assert-PowerShellSyntax $parserTest
+Assert-PowerShellSyntax $discoveryTest
 Assert-PowerShellSyntax $PSCommandPath
 
 $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-tests-" + [guid]::NewGuid().ToString("N"))
@@ -278,6 +280,7 @@ try {
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $recordDir "run.count"), $utf8).Trim()) "5" "Probe fixtures changed the run launch count."
 
     & $parserTest
+    & $discoveryTest
 } finally {
     foreach ($name in $environmentNames) {
         $originalValue = $originalEnvironment[$name]

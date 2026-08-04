@@ -4,9 +4,10 @@ Run any CLI coding agent with a single command.
 
 `aagent` is being implemented in the phases tracked by `TODO.md`. The current
 build implements the complete wrapper grammar, prompt/stdin resolution,
-working-directory validation, `--help`, and `--version`. Provider discovery and
-execution are the next phases, so a valid prompt currently exits with status
-`69` instead of starting a locally installed agent.
+working-directory validation, `--help`, `--version`, the static provider
+registry, and side-effect-free executable discovery. Provider process execution
+is the next phase, so a valid prompt currently exits with status `69` instead of
+starting a locally installed agent.
 
 ## Specification
 

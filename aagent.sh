@@ -11,6 +11,177 @@ readonly \
     AAGENT_EXIT_SOFTWARE=70 \
     AAGENT_EXIT_CONFIG=78
 readonly AAGENT_VERSION="0.1.0-dev"
+readonly AAGENT_POPULARITY_SNAPSHOT="2026-08-04"
+
+aagent_reset_registry() {
+    AAGENT_ADAPTER_IDS=()
+    AAGENT_ADAPTER_NAMES=()
+    AAGENT_ADAPTER_EXECUTABLES=()
+    AAGENT_ADAPTER_OVERRIDES=()
+    AAGENT_ADAPTER_TIERS=()
+    AAGENT_ADAPTER_COMMANDS=()
+    AAGENT_ADAPTER_STDIN=()
+    AAGENT_ADAPTER_MODELS=()
+    AAGENT_ADAPTER_STRUCTURED=()
+    AAGENT_ADAPTER_SESSIONS=()
+    AAGENT_ADAPTER_SAFETY=()
+    AAGENT_ADAPTER_PROBES=()
+    AAGENT_ADAPTER_POPULARITY=()
+    AAGENT_ADAPTER_REGISTRY_ORDER=()
+}
+
+aagent_register_adapter() {
+    AAGENT_ADAPTER_IDS+=("$1")
+    AAGENT_ADAPTER_NAMES+=("$2")
+    AAGENT_ADAPTER_EXECUTABLES+=("$3")
+    AAGENT_ADAPTER_OVERRIDES+=("$4")
+    AAGENT_ADAPTER_TIERS+=("$5")
+    AAGENT_ADAPTER_COMMANDS+=("$6")
+    AAGENT_ADAPTER_STDIN+=("$7")
+    AAGENT_ADAPTER_MODELS+=("$8")
+    AAGENT_ADAPTER_STRUCTURED+=("$9")
+    shift 9
+    AAGENT_ADAPTER_SESSIONS+=("$1")
+    AAGENT_ADAPTER_SAFETY+=("$2")
+    AAGENT_ADAPTER_PROBES+=("$3")
+    AAGENT_ADAPTER_POPULARITY+=("$4")
+    AAGENT_ADAPTER_REGISTRY_ORDER+=("$5")
+}
+
+aagent_initialize_registry() {
+    aagent_reset_registry
+
+    aagent_register_adapter "codex" "Codex CLI" "codex" "AAGENT_CODEX_BIN" "tier1" \
+        "codex exec PROMPT" "argument-and-stdin" "--model" "jsonl" "resume" \
+        "Read-only sandbox by default; broader sandboxes are explicit." "app-server account/read" "1" "1"
+    aagent_register_adapter "claude" "Claude Code" "claude" "AAGENT_CLAUDE_BIN" "tier1" \
+        "claude --print PROMPT" "argument-and-stdin" "--model" "json,stream-json" "resume" \
+        "Permission modes are native; never add --bare or a bypass." "auth status --json" "2" "2"
+    aagent_register_adapter "opencode" "OpenCode" "opencode" "AAGENT_OPENCODE_BIN" "tier1" \
+        "opencode run PROMPT" "argument" "--model" "json-events" "resume,fork" \
+        "Native permissions may allow tools; never add --auto." "auth list" "3" "3"
+    aagent_register_adapter "copilot" "GitHub Copilot CLI" "copilot" "AAGENT_COPILOT_BIN" "planned" \
+        "copilot --prompt PROMPT" "argument" "--model" "none" "unknown" \
+        "Automatic tool approval is explicitly privileged." "unknown" "4" "4"
+    aagent_register_adapter "gemini" "Gemini CLI" "gemini" "AAGENT_GEMINI_BIN" "tier1" \
+        "gemini --prompt PROMPT" "argument-and-stdin" "--model" "json,stream-json" "resume" \
+        "Approval and sandbox modes are native; never add yolo." "settings selectedType" "5" "5"
+    aagent_register_adapter "cline" "Cline CLI" "cline" "AAGENT_CLINE_BIN" "planned" \
+        "cline PROMPT" "argument" "--model" "ndjson" "unknown" \
+        "Headless use documents automatic approval behavior." "unknown" "6" "6"
+    aagent_register_adapter "goose" "Goose" "goose" "AAGENT_GOOSE_BIN" "planned" \
+        "goose run --text PROMPT" "argument" "provider-native" "json,stream-json" "unknown" \
+        "Headless automation may use GOOSE_MODE=auto only by user choice." "provider metadata" "7" "7"
+    aagent_register_adapter "aider" "Aider" "aider" "AAGENT_AIDER_BIN" "planned" \
+        "aider --message PROMPT" "argument" "--model" "none" "unknown" \
+        "Automatically commits changes by default." "model metadata" "8" "8"
+    aagent_register_adapter "qwen" "Qwen Code" "qwen" "AAGENT_QWEN_BIN" "planned" \
+        "qwen --prompt PROMPT" "argument-and-stdin" "--model" "json,stream-json" "resume" \
+        "Approval modes and budgets remain native." "auth selection" "9" "9"
+    aagent_register_adapter "amp" "Amp" "amp" "AAGENT_AMP_BIN" "tier1" \
+        "amp --execute PROMPT" "argument-and-stdin" "none" "stream-json" "continue" \
+        "Uses tools without asking by default; no portable read-only promise." "unknown" "10" "10"
+    aagent_register_adapter "kimi" "Kimi Code" "kimi" "AAGENT_KIMI_BIN" "planned" \
+        "kimi --prompt PROMPT" "argument" "--model" "stream-json" "unknown" \
+        "Print mode uses automatic permission handling." "managed-login metadata" "11" "11"
+    aagent_register_adapter "droid" "Factory Droid" "droid" "AAGENT_DROID_BIN" "planned" \
+        "droid exec PROMPT" "argument" "--model" "json,stream-json,json-rpc" "unknown" \
+        "Read-only spec mode by default; autonomy flags are explicit." "account metadata" "12" "12"
+    aagent_register_adapter "crush" "Crush" "crush" "AAGENT_CRUSH_BIN" "planned" \
+        "crush run PROMPT" "argument" "provider-native" "none" "unknown" \
+        "Native permission prompts remain unless user supplies yolo." "unknown" "13" "13"
+    aagent_register_adapter "vibe" "Mistral Vibe" "vibe" "AAGENT_VIBE_BIN" "planned" \
+        "vibe --prompt PROMPT" "argument" "provider-native" "json,ndjson" "resume" \
+        "Auto-approval, tools, and budgets remain native." "profile metadata" "14" "14"
+    aagent_register_adapter "kiro" "Kiro CLI" "kiro-cli" "AAGENT_KIRO_BIN" "planned" \
+        "kiro-cli chat --no-interactive PROMPT" "argument" "provider-native" "none" "unknown" \
+        "Trust flags control pre-approved tools and remain explicit." "unknown" "15" "15"
+    aagent_register_adapter "cursor" "Cursor CLI" "agent" "AAGENT_CURSOR_BIN" "planned" \
+        "agent --print PROMPT" "argument" "--model" "json,stream-json" "resume" \
+        "Changes are proposed unless the user explicitly forces them." "status --format json" "16" "16"
+}
+
+aagent_get_adapter_index() {
+    local requested="$1"
+    local index
+
+    for ((index = 0; index < ${#AAGENT_ADAPTER_IDS[@]}; index++)); do
+        if [[ "${AAGENT_ADAPTER_IDS[$index]}" == "$requested" ]]; then
+            printf '%s\n' "$index"
+            return "$AAGENT_EXIT_OK"
+        fi
+    done
+    return "$AAGENT_EXIT_USAGE"
+}
+
+aagent_resolve_discovery_target() {
+    local executable="$1"
+    local override_name="$2"
+    local requested="$executable"
+    local candidate=""
+
+    if [[ -n "${!override_name-}" ]]; then
+        requested="${!override_name}"
+        AAGENT_DISCOVERY_SOURCE="override"
+    else
+        AAGENT_DISCOVERY_SOURCE="path"
+    fi
+
+    if [[ "$requested" == */* ]]; then
+        candidate="$requested"
+    else
+        candidate="$(type -P "$requested" 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$candidate" || ! -f "$candidate" || ! -x "$candidate" ]]; then
+        AAGENT_RESOLVED_PATH=""
+        if [[ "$AAGENT_DISCOVERY_SOURCE" == "override" ]]; then
+            AAGENT_DISCOVERY_REASON="invalid executable override: $override_name"
+        else
+            AAGENT_DISCOVERY_REASON="executable missing"
+        fi
+        return "$AAGENT_EXIT_UNAVAILABLE"
+    fi
+
+    if [[ -e "${BASH_SOURCE[0]}" && "$candidate" -ef "${BASH_SOURCE[0]}" ]]; then
+        AAGENT_RESOLVED_PATH=""
+        AAGENT_DISCOVERY_REASON="resolved target is the aagent wrapper"
+        return "$AAGENT_EXIT_UNAVAILABLE"
+    fi
+
+    AAGENT_RESOLVED_PATH="$candidate"
+    AAGENT_DISCOVERY_REASON="executable found"
+}
+
+aagent_discover_adapters() {
+    aagent_initialize_registry
+    AAGENT_DISCOVERY_STATUSES=()
+    AAGENT_DISCOVERY_PATHS=()
+    AAGENT_DISCOVERY_REASONS=()
+    AAGENT_DISCOVERY_SOURCES=()
+
+    local index
+    local status
+    for ((index = 0; index < ${#AAGENT_ADAPTER_IDS[@]}; index++)); do
+        if aagent_resolve_discovery_target \
+            "${AAGENT_ADAPTER_EXECUTABLES[$index]}" \
+            "${AAGENT_ADAPTER_OVERRIDES[$index]}"; then
+            if [[ "${AAGENT_ADAPTER_TIERS[$index]}" == "tier1" ]]; then
+                status="installed"
+            else
+                status="unsupported"
+                AAGENT_DISCOVERY_REASON="adapter planned; executable found"
+            fi
+        else
+            status="missing"
+        fi
+
+        AAGENT_DISCOVERY_STATUSES+=("$status")
+        AAGENT_DISCOVERY_PATHS+=("$AAGENT_RESOLVED_PATH")
+        AAGENT_DISCOVERY_REASONS+=("$AAGENT_DISCOVERY_REASON")
+        AAGENT_DISCOVERY_SOURCES+=("$AAGENT_DISCOVERY_SOURCE")
+    done
+}
 
 aagent_print_help() {
     cat <<'EOF'

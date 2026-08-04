@@ -21,6 +21,12 @@ The implementation may use functions or case statements, but the data above
 must remain inspectable and testable as an adapter registry. Adapter-specific
 logic must not leak into global argument parsing.
 
+The registry is ordered by the versioned popularity/registry snapshot in
+`selection.md`. Tier 1 entries are runnable once their later invocation phases
+land. Planned entries are still discoverable for diagnostics but report
+`unsupported` when installed; their presence never makes them an automatic MVP
+candidate.
+
 ## Tier 1: required for the first functional release
 
 ### Claude Code (`claude`)
