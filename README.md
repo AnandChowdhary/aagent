@@ -7,8 +7,15 @@ build implements the complete wrapper grammar, prompt/stdin resolution,
 working-directory validation, `--help`, `--version`, the static provider
 registry, and side-effect-free executable discovery. Provider process execution
 now has a shared launch-plan contract and safe Bash/PowerShell execution core.
-Provider-specific command construction is the next phase, so a valid prompt
-still exits with status `69` instead of starting a locally installed agent.
+The five Tier 1 adapters (Claude, Codex, OpenCode, Amp, and Gemini) can be run
+with an explicit `--provider`. Automatic provider selection lands in the later
+selection phases, so a prompt without `--provider` still exits with status `69`.
+
+```bash
+aagent --provider claude "say hello"
+aagent --provider codex --model gpt-5.4 "explain this repository"
+git diff | aagent --provider gemini "summarize these changes"
+```
 
 ## Specification
 
@@ -62,8 +69,8 @@ pwsh ./tests/test_aagent.ps1
 ```
 
 GitHub Actions runs the Bash suite on Linux, macOS, and Windows, and the
-PowerShell suite on Windows. Both entrypoints include the process-launch
-contract tests.
+PowerShell suite on Windows. Both entrypoints include the process-launch and
+Tier 1 adapter contract tests.
 
 The test entrypoints create an isolated home, configuration directory, and
 controlled `PATH`. Tier 1 provider behavior is simulated by credential-free
@@ -72,6 +79,9 @@ fake executables documented in
 locally installed coding agent. Launch tests verify argument boundaries, exact
 stdin, child-only cwd and environment changes, stdout/stderr separation, native
 statuses, interruption behavior where CI supports it, and redacted dry-runs.
+Adapter snapshots additionally prove provider-specific command order, all three
+input modes, model behavior, native options, safety defaults, and one-run-only
+failure handling without credentials or network requests.
 
 ## License
 

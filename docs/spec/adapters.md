@@ -21,6 +21,11 @@ The implementation may use functions or case statements, but the data above
 must remain inspectable and testable as an adapter registry. Adapter-specific
 logic must not leak into global argument parsing.
 
+For OpenCode, whose documented `run` interface accepts a message argument but
+does not document separate piped context, stdin-only input is passed as that
+single message argument. Prompt-plus-stdin uses the separator fallback from
+the CLI contract and is likewise passed as one message argument.
+
 The registry is ordered by the versioned popularity/registry snapshot in
 `selection.md`. Tier 1 entries are runnable once their later invocation phases
 land. Planned entries are still discoverable for diagnostics but report
