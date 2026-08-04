@@ -2,7 +2,11 @@
 
 Run any CLI coding agent with a single command.
 
-`aagent` is an intentionally small scaffold for now. The Bash and PowerShell runners only support `--help`.
+`aagent` is being implemented in the phases tracked by `TODO.md`. The current
+build implements the complete wrapper grammar, prompt/stdin resolution,
+working-directory validation, `--help`, and `--version`. Provider discovery and
+execution are the next phases, so a valid prompt currently exits with status
+`69` instead of starting a locally installed agent.
 
 ## Specification
 
@@ -31,12 +35,14 @@ Run the Bash script directly on macOS, Linux, or Windows with Git Bash or WSL:
 
 ```bash
 ./aagent.sh --help
+./aagent.sh --version
 ```
 
 Run the native PowerShell script on Windows:
 
 ```powershell
 pwsh ./aagent.ps1 --help
+pwsh ./aagent.ps1 --version
 ```
 
 ## Development

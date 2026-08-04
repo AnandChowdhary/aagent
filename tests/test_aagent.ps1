@@ -4,6 +4,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $aagentScript = Join-Path $projectRoot "aagent.ps1"
 $installScript = Join-Path $projectRoot "install.ps1"
 $fakeProvider = Join-Path $projectRoot "tests/helpers/fake-provider.ps1"
+$parserTest = Join-Path $projectRoot "tests/test_parser.ps1"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 function Assert-Equal($Actual, $Expected, [string] $Message) {
@@ -88,6 +89,7 @@ function Invoke-FakeProvider {
 Assert-PowerShellSyntax $aagentScript
 Assert-PowerShellSyntax $installScript
 Assert-PowerShellSyntax $fakeProvider
+Assert-PowerShellSyntax $parserTest
 Assert-PowerShellSyntax $PSCommandPath
 
 $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-tests-" + [guid]::NewGuid().ToString("N"))
@@ -150,28 +152,30 @@ try {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }
 
-    $helpOutput = (& $aagentScript --help | Out-String).Trim()
+    $helpOutput = (& pwsh -NoProfile -File $aagentScript --help | Out-String).Trim()
     Assert-Contains $helpOutput "Run any CLI coding agent with a single command." "Help is missing the description."
     Assert-Contains $helpOutput "Usage:" "Help is missing usage."
     Assert-Contains $helpOutput "--help" "Help is missing the help option."
 
-    $shortHelpOutput = (& $aagentScript -h | Out-String).Trim()
+    $shortHelpOutput = (& pwsh -NoProfile -File $aagentScript -h | Out-String).Trim()
     Assert-Equal $shortHelpOutput $helpOutput "-h and --help output differ."
 
-    $defaultOutput = (& $aagentScript | Out-String).Trim()
-    Assert-Equal $defaultOutput $helpOutput "Running without arguments should show help."
+    $defaultOutput = (& pwsh -NoProfile -File $aagentScript 2>&1 | Out-String)
+    $defaultStatus = $LASTEXITCODE
+    Assert-Equal $defaultStatus 64 "Running without input should use the wrapper usage status."
+    Assert-Contains $defaultOutput "a non-empty prompt or piped stdin is required" "Missing input error is absent."
 
     $unknownOutput = (& pwsh -NoProfile -File $aagentScript --unknown 2>&1 | Out-String)
     $unknownStatus = $LASTEXITCODE
     Assert-Equal $unknownStatus 64 "Unknown arguments should use the wrapper usage status."
-    Assert-Contains $unknownOutput "unknown argument: --unknown" "Unknown argument error is missing."
+    Assert-Contains $unknownOutput "unknown option: --unknown" "Unknown option error is missing."
 
     $env:AAGENT_SOURCE = $aagentScript
     $env:INSTALL_DIR = Join-Path $testDir "installed-bin"
     & $installScript | Out-Null
 
     $installedAagent = Join-Path $env:INSTALL_DIR "aagent.ps1"
-    $installedHelpOutput = (& $installedAagent --help | Out-String).Trim()
+    $installedHelpOutput = (& pwsh -NoProfile -File $installedAagent --help | Out-String).Trim()
     Assert-Equal $installedHelpOutput $helpOutput "Installed executable help differs."
 
     $env:AAGENT_FAKE_RECORD_DIR = $recordDir
@@ -272,6 +276,8 @@ try {
 
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()) "8" "Probe launch count differs."
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $recordDir "run.count"), $utf8).Trim()) "5" "Probe fixtures changed the run launch count."
+
+    & $parserTest
 } finally {
     foreach ($name in $environmentNames) {
         $originalValue = $originalEnvironment[$name]
