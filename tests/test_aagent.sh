@@ -6,6 +6,7 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 aagent_script="$project_root/aagent.sh"
 install_script="$project_root/install.sh"
 fake_provider="$project_root/tests/helpers/fake-provider.sh"
+parser_test="$project_root/tests/test_parser.sh"
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -37,7 +38,7 @@ hex_string() {
     printf '%s' "$1" | od -An -v -tx1 | tr -d ' \n'
 }
 
-bash -n "$aagent_script" "$install_script" "$fake_provider" "${BASH_SOURCE[0]}"
+bash -n "$aagent_script" "$install_script" "$fake_provider" "$parser_test" "${BASH_SOURCE[0]}"
 
 test_dir="$(mktemp -d)"
 original_home="${HOME-}"
@@ -78,8 +79,13 @@ assert_contains "$help_output" "--help" "help is missing the help option"
 short_help_output="$(bash "$aagent_script" -h)"
 assert_equals "$short_help_output" "$help_output" "-h and --help output differ"
 
-default_output="$(bash "$aagent_script")"
-assert_equals "$default_output" "$help_output" "running without arguments should show help"
+default_output="$test_dir/default.out"
+set +e
+bash "$aagent_script" >"$default_output" 2>&1
+default_status=$?
+set -e
+assert_equals "$default_status" "64" "running without input should use the wrapper usage status"
+grep -q "a non-empty prompt or piped stdin is required" "$default_output" || fail "missing input error is absent"
 
 unknown_output="$test_dir/unknown.out"
 set +e
@@ -87,7 +93,7 @@ bash "$aagent_script" --unknown >"$unknown_output" 2>&1
 unknown_status=$?
 set -e
 assert_equals "$unknown_status" "64" "unknown arguments should use the wrapper usage status"
-grep -q "unknown argument: --unknown" "$unknown_output" || fail "unknown argument error is missing"
+grep -q "unknown option: --unknown" "$unknown_output" || fail "unknown option error is missing"
 
 AAGENT_SOURCE="$aagent_script" INSTALL_DIR="$test_dir/installed-bin" bash "$install_script" >/dev/null
 installed_help_output="$("$test_dir/installed-bin/aagent" --help)"
@@ -178,5 +184,7 @@ assert_equals "$(cat "$test_dir/probe-failure.stderr")" "probe-failed" "probe fa
 
 assert_equals "$(tr -d '\r\n' < "$record_dir/probe.count")" "8" "probe launch count differs"
 assert_equals "$(tr -d '\r\n' < "$record_dir/run.count")" "5" "probe fixtures changed the run launch count"
+
+bash "$parser_test"
 
 printf 'All Bash tests passed.\n'

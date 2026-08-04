@@ -40,6 +40,10 @@ Unknown wrapper options before `--` are usage errors. Arguments after `--` are
 deliberate provider-native options. Adapters place them in the position required
 by the selected CLI; they are never evaluated as shell source.
 
+Wrapper options are recognized anywhere before `--`, including between prompt
+arguments. Prompt content that begins with a dash should be supplied through
+stdin; after `--`, every argument is provider-native rather than prompt text.
+
 ## Prompt and stdin rules
 
 1. Positional prompt arguments are joined with one ASCII space and sent as one
@@ -61,7 +65,9 @@ by the selected CLI; they are never evaluated as shell source.
 4. With neither a prompt nor piped stdin, `aagent` prints concise usage and
    exits with a usage error. It never opens an interactive provider UI
    accidentally.
-5. An empty prompt is a usage error.
+5. An explicitly supplied empty prompt is a usage error, including when stdin
+   is also present; stdin must not silently turn an empty instruction into an
+   stdin-only run.
 
 Prompts must always be passed as data in an argument array. Implementations must
 not use `eval`, construct an executable command string, or interpolate a prompt
