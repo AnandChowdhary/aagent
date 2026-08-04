@@ -326,6 +326,613 @@ function Resolve-AagentConfiguration {
     return $Result
 }
 
+Set-Variable -Name AagentProbeTimeoutMilliseconds -Value 3000 -Option Constant -Scope Script
+Set-Variable -Name AagentProbeMaxBytes -Value 65536 -Option Constant -Scope Script
+
+function New-AagentProbeResult([string] $Provider) {
+    return [pscustomobject] @{
+        Provider = $Provider
+        Readiness = "unknown"
+        FundingClass = "unknown"
+        ConfidenceRank = 0
+        PlanLabel = "Unknown"
+        ReasonCode = "probe_unavailable"
+        ShadowingVariables = [string[]] @()
+        Source = "none"
+        ProbeStatus = "not_run"
+    }
+}
+
+function Set-AagentProbeResult {
+    param(
+        $Result,
+        [string] $Readiness,
+        [string] $FundingClass,
+        [int] $ConfidenceRank,
+        [string] $PlanLabel,
+        [string] $ReasonCode,
+        [string] $Source,
+        [string] $ProbeStatus,
+        [string[]] $ShadowingVariables = @()
+    )
+
+    $Result.Readiness = $Readiness
+    $Result.FundingClass = $FundingClass
+    $Result.ConfidenceRank = $ConfidenceRank
+    $Result.PlanLabel = $PlanLabel
+    $Result.ReasonCode = $ReasonCode
+    $Result.Source = $Source
+    $Result.ProbeStatus = $ProbeStatus
+    $Result.ShadowingVariables = [string[]] $ShadowingVariables
+    return $Result
+}
+
+function Test-AagentEnvironmentPresent([string] $Name) {
+    # The dictionary key is inspected, but its value is never indexed, copied,
+    # transformed, compared, or emitted.
+    return [Environment]::GetEnvironmentVariables("Process").Contains($Name)
+}
+
+function Get-AagentPresentEnvironmentNames([string[]] $Names) {
+    $present = [Collections.Generic.List[string]]::new()
+    foreach ($name in $Names) {
+        if (Test-AagentEnvironmentPresent $name) {
+            $present.Add($name)
+        }
+    }
+    return [string[]] $present
+}
+
+function Get-AagentProbeCommand([string] $Executable, [string[]] $Arguments) {
+    $extension = [IO.Path]::GetExtension($Executable)
+    if ($extension -ieq ".ps1") {
+        $pwsh = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1
+        return [pscustomobject] @{
+            Executable = $pwsh.Source
+            Arguments = [string[]] (@("-NoProfile", "-File", $Executable) + $Arguments)
+        }
+    }
+    if ($extension -iin @(".cmd", ".bat")) {
+        throw "batch probes are unsupported"
+    }
+    return [pscustomobject] @{ Executable = $Executable; Arguments = [string[]] $Arguments }
+}
+
+function New-AagentProbeProcessResult([string] $Status, [string] $Capture = "") {
+    return [pscustomobject] @{ Status = $Status; Capture = $Capture }
+}
+
+function Invoke-AagentProbeProcess {
+    param(
+        [string] $Executable,
+        [string[]] $Arguments,
+        [AllowEmptyString()]
+        [string] $StdinData = "",
+        [ValidateSet("stdout", "stderr")]
+        [string] $CaptureStream = "stdout",
+        [int] $StdinLingerMilliseconds = 0
+    )
+
+    try {
+        $command = Get-AagentProbeCommand $Executable $Arguments
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $command.Executable
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardInput = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in $command.Arguments) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            return New-AagentProbeProcessResult "supervisor_failure"
+        }
+        $deadline = [DateTime]::UtcNow.AddMilliseconds($AagentProbeTimeoutMilliseconds)
+        $process.StandardInput.Write($StdinData)
+        if ($StdinLingerMilliseconds -gt 0) {
+            Start-Sleep -Milliseconds $StdinLingerMilliseconds
+        }
+        $process.StandardInput.Close()
+
+        $stdoutBuffer = [byte[]]::new(4096)
+        $stderrBuffer = [byte[]]::new(4096)
+        $stdoutCapture = [IO.MemoryStream]::new()
+        $stderrCapture = [IO.MemoryStream]::new()
+        $stdoutBytes = 0L
+        $stderrBytes = 0L
+        $stdoutDone = $false
+        $stderrDone = $false
+        $truncated = $false
+        $timedOut = $false
+        $stdoutTask = $process.StandardOutput.BaseStream.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
+        $stderrTask = $process.StandardError.BaseStream.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
+        while (-not $stdoutDone -or -not $stderrDone) {
+            if (-not $stdoutDone -and $stdoutTask.IsCompleted) {
+                $count = $stdoutTask.GetAwaiter().GetResult()
+                if ($count -eq 0) {
+                    $stdoutDone = $true
+                } else {
+                    $stdoutBytes += $count
+                    if ($stdoutBytes -le $AagentProbeMaxBytes) {
+                        $stdoutCapture.Write($stdoutBuffer, 0, $count)
+                    } else {
+                        $truncated = $true
+                    }
+                    $stdoutTask = $process.StandardOutput.BaseStream.ReadAsync(
+                        $stdoutBuffer,
+                        0,
+                        $stdoutBuffer.Length
+                    )
+                }
+            }
+            if (-not $stderrDone -and $stderrTask.IsCompleted) {
+                $count = $stderrTask.GetAwaiter().GetResult()
+                if ($count -eq 0) {
+                    $stderrDone = $true
+                } else {
+                    $stderrBytes += $count
+                    if ($stderrBytes -le $AagentProbeMaxBytes) {
+                        $stderrCapture.Write($stderrBuffer, 0, $count)
+                    } else {
+                        $truncated = $true
+                    }
+                    $stderrTask = $process.StandardError.BaseStream.ReadAsync(
+                        $stderrBuffer,
+                        0,
+                        $stderrBuffer.Length
+                    )
+                }
+            }
+            if (-not $process.HasExited -and [DateTime]::UtcNow -ge $deadline) {
+                $timedOut = $true
+                try { $process.Kill($true) } catch { try { $process.Kill() } catch {} }
+            }
+            if (-not $stdoutDone -or -not $stderrDone) {
+                Start-Sleep -Milliseconds 5
+            }
+        }
+        $process.WaitForExit()
+        if ($timedOut) {
+            return New-AagentProbeProcessResult "timeout"
+        }
+        if ($truncated) {
+            return New-AagentProbeProcessResult "truncated"
+        }
+        if ($process.ExitCode -ne 0) {
+            return New-AagentProbeProcessResult "nonzero"
+        }
+        $utf8 = [Text.UTF8Encoding]::new($false, $true)
+        $captureBytes = if ($CaptureStream -eq "stdout") {
+            $stdoutCapture.ToArray()
+        } else {
+            $stderrCapture.ToArray()
+        }
+        $capture = $utf8.GetString($captureBytes)
+        return New-AagentProbeProcessResult "success" $capture.TrimEnd([char[]] @("`r", "`n"))
+    } catch {
+        return New-AagentProbeProcessResult "supervisor_failure"
+    }
+}
+
+function ConvertFrom-AagentProbeJson([string] $Json) {
+    try {
+        return $Json | ConvertFrom-Json -Depth 32 -NoEnumerate -ErrorAction Stop
+    } catch {
+        return $null
+    }
+}
+
+function Get-AagentJsonProperty($Object, [string] $Name) {
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
+function Set-AagentClaudeEnvironmentResult($Result, [string] $ProbeStatus) {
+    $cloud = Get-AagentPresentEnvironmentNames @(
+        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"
+    )
+    if ($cloud.Count -gt 0) {
+        Set-AagentProbeResult $Result ready unknown 1 "Organization route" `
+            claude_cloud_environment environment $ProbeStatus $cloud | Out-Null
+        return $true
+    }
+    if (Test-AagentEnvironmentPresent "ANTHROPIC_AUTH_TOKEN") {
+        Set-AagentProbeResult $Result ready unknown 1 "Bearer or gateway" `
+            claude_bearer_environment environment $ProbeStatus @("ANTHROPIC_AUTH_TOKEN") | Out-Null
+        return $true
+    }
+    if (Test-AagentEnvironmentPresent "ANTHROPIC_API_KEY") {
+        Set-AagentProbeResult $Result ready payg_byok 1 "Anthropic API" `
+            claude_api_environment environment $ProbeStatus @("ANTHROPIC_API_KEY") | Out-Null
+        return $true
+    }
+    if (Test-AagentEnvironmentPresent "CLAUDE_CODE_OAUTH_TOKEN") {
+        Set-AagentProbeResult $Result ready included_account 1 "Claude subscription token" `
+            claude_oauth_environment environment $ProbeStatus @("CLAUDE_CODE_OAUTH_TOKEN") | Out-Null
+        return $true
+    }
+    return $false
+}
+
+function Invoke-AagentClaudeProbe([string] $Executable) {
+    $result = New-AagentProbeResult "claude"
+    $probe = Invoke-AagentProbeProcess $Executable @("auth", "status", "--json")
+    if ($probe.Status -ne "success") {
+        if (-not (Set-AagentClaudeEnvironmentResult $result $probe.Status)) {
+            Set-AagentProbeResult $result unknown unknown 0 "Unknown" claude_probe_failed `
+                auth_status $probe.Status | Out-Null
+        }
+        return $result
+    }
+
+    $json = ConvertFrom-AagentProbeJson $probe.Capture
+    $probe.Capture = ""
+    $loggedIn = Get-AagentJsonProperty $json "loggedIn"
+    if ($loggedIn -isnot [bool]) {
+        if (-not (Set-AagentClaudeEnvironmentResult $result "schema_failure")) {
+            Set-AagentProbeResult $result unknown unknown 0 "Unknown" claude_schema_failure `
+                auth_status schema_failure | Out-Null
+        }
+        return $result
+    }
+
+    $authMethod = Get-AagentJsonProperty $json "authMethod"
+    $subscriptionType = Get-AagentJsonProperty $json "subscriptionType"
+    $apiProvider = Get-AagentJsonProperty $json "apiProvider"
+    $apiKeySource = Get-AagentJsonProperty $json "apiKeySource"
+    foreach ($field in @("authMethod", "subscriptionType", "apiProvider", "apiKeySource")) {
+        $value = Get-Variable -Name $field -ValueOnly
+        if ($null -ne $value -and $value -isnot [string]) {
+            Set-Variable -Name $field -Value ""
+        }
+    }
+    if (-not $loggedIn) {
+        if (-not (Set-AagentClaudeEnvironmentResult $result "success")) {
+            Set-AagentProbeResult $result unusable unknown 3 "Not signed in" claude_not_logged_in `
+                auth_status success | Out-Null
+        }
+        return $result
+    }
+
+    $authLower = ([string] $authMethod).ToLowerInvariant()
+    $subscriptionLower = ([string] $subscriptionType).ToLowerInvariant()
+    $providerLower = ([string] $apiProvider).ToLowerInvariant()
+    $keySourceLower = ([string] $apiKeySource).ToLowerInvariant()
+    $shadowing = Get-AagentPresentEnvironmentNames @(
+        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+        "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"
+    )
+
+    if (
+        $providerLower -match "bedrock|vertex|foundry" -or
+        $authLower -match "bedrock|vertex|foundry"
+    ) {
+        Set-AagentProbeResult $result ready unknown 3 "Organization route" claude_cloud_status `
+            auth_status success $shadowing | Out-Null
+    } elseif ($authLower -match "bearer|gateway" -or $keySourceLower -match "helper") {
+        Set-AagentProbeResult $result ready unknown 3 "Bearer or helper" claude_gateway_status `
+            auth_status success $shadowing | Out-Null
+    } elseif (
+        $authLower -match "api|console" -or $providerLower -match "console" -or
+        $keySourceLower -match "api"
+    ) {
+        Set-AagentProbeResult $result ready payg_byok 3 "Anthropic API" claude_api_status `
+            auth_status success $shadowing | Out-Null
+    } elseif (
+        -not [string]::IsNullOrEmpty($subscriptionType) -or
+        $providerLower.Contains("claude.ai") -or $authLower -match "claude.ai|oauth"
+    ) {
+        $funding = "included_account"
+        $label = "Claude subscription"
+        switch -Regex ($subscriptionLower) {
+            '^pro' { $label = "Claude Pro"; $funding = "included_confirmed"; break }
+            '^max' { $label = "Claude Max"; $funding = "included_confirmed"; break }
+            '^team' { $label = "Claude Team"; $funding = "included_confirmed"; break }
+            '^enterprise' { $label = "Claude Enterprise"; $funding = "included_confirmed"; break }
+        }
+        Set-AagentProbeResult $result ready $funding 3 $label claude_subscription_status `
+            auth_status success $shadowing | Out-Null
+    } else {
+        Set-AagentProbeResult $result ready unknown 3 "Claude account" claude_unknown_status `
+            auth_status success $shadowing | Out-Null
+    }
+    return $result
+}
+
+function Get-AagentCodexPlan([string] $PlanType) {
+    switch ($PlanType.ToLowerInvariant()) {
+        "plus" { return @("ChatGPT Plus", "included_confirmed") }
+        "pro" { return @("ChatGPT Pro", "included_confirmed") }
+        "team" { return @("ChatGPT Team", "included_confirmed") }
+        "business" { return @("ChatGPT Business", "included_confirmed") }
+        "enterprise" { return @("ChatGPT Enterprise", "included_confirmed") }
+        "edu" { return @("ChatGPT Edu", "included_confirmed") }
+        "free" { return @("ChatGPT Free", "included_account") }
+        default { return @("ChatGPT account", "included_account") }
+    }
+}
+
+function Set-AagentCodexEnvironmentResult($Result, [string] $ProbeStatus) {
+    if (Test-AagentEnvironmentPresent "CODEX_API_KEY") {
+        Set-AagentProbeResult $Result ready payg_byok 1 "OpenAI API" codex_api_environment `
+            environment $ProbeStatus @("CODEX_API_KEY") | Out-Null
+        return $true
+    }
+    if (Test-AagentEnvironmentPresent "OPENAI_API_KEY") {
+        Set-AagentProbeResult $Result ready payg_byok 1 "OpenAI API" codex_openai_environment `
+            environment $ProbeStatus @("OPENAI_API_KEY") | Out-Null
+        return $true
+    }
+    return $false
+}
+
+function Get-AagentCodexAccountResponse([string] $Capture) {
+    foreach ($line in ($Capture -split "`r?`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $message = ConvertFrom-AagentProbeJson $line
+        if ($null -eq $message) { continue }
+        $id = Get-AagentJsonProperty $message "id"
+        if ($id -isnot [long] -and $id -isnot [int]) { continue }
+        if ([long] $id -ne 1) { continue }
+        return $message
+    }
+    return $null
+}
+
+function Invoke-AagentCodexFallback($Result, [string] $Executable) {
+    $probe = Invoke-AagentProbeProcess $Executable @("login", "status") "" stderr
+    if ($probe.Status -ne "success") {
+        if (-not (Set-AagentCodexEnvironmentResult $Result $probe.Status)) {
+            Set-AagentProbeResult $Result unknown unknown 0 "Unknown" codex_probe_failed `
+                login_status $probe.Status | Out-Null
+        }
+        return $Result
+    }
+    $text = $probe.Capture
+    $probe.Capture = ""
+    if ($text.Contains("Logged in using ChatGPT")) {
+        $shadowing = Get-AagentPresentEnvironmentNames @("CODEX_API_KEY")
+        Set-AagentProbeResult $Result ready unknown 2 "ChatGPT account" codex_login_text_chatgpt `
+            login_status fallback_success $shadowing | Out-Null
+    } elseif ($text.Contains("Logged in using an API key")) {
+        Set-AagentProbeResult $Result ready payg_byok 2 "OpenAI API" codex_login_text_api `
+            login_status fallback_success @("CODEX_API_KEY") | Out-Null
+    } elseif ($text.Contains("Not logged in")) {
+        if (-not (Set-AagentCodexEnvironmentResult $Result "fallback_success")) {
+            Set-AagentProbeResult $Result unusable unknown 2 "Not signed in" codex_not_logged_in `
+                login_status fallback_success | Out-Null
+        }
+    } elseif (-not (Set-AagentCodexEnvironmentResult $Result "schema_failure")) {
+        Set-AagentProbeResult $Result unknown unknown 0 "Unknown" codex_fallback_schema_failure `
+            login_status schema_failure | Out-Null
+    }
+    return $Result
+}
+
+function Invoke-AagentCodexProbe([string] $Executable) {
+    $result = New-AagentProbeResult "codex"
+    $protocolInput = @(
+        '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"aagent","title":"aagent","version":"0.1.0"}}}'
+        '{"method":"initialized","params":{}}'
+        '{"method":"account/read","id":1,"params":{"refreshToken":false}}'
+        ""
+    ) -join "`n"
+    $probe = Invoke-AagentProbeProcess $Executable @("app-server") $protocolInput stdout 500
+    if ($probe.Status -ne "success") {
+        return Invoke-AagentCodexFallback $result $Executable
+    }
+    $message = Get-AagentCodexAccountResponse $probe.Capture
+    $probe.Capture = ""
+    if ($null -eq $message) {
+        return Invoke-AagentCodexFallback $result $Executable
+    }
+    $rpcResult = Get-AagentJsonProperty $message "result"
+    if ($null -eq $rpcResult) {
+        return Invoke-AagentCodexFallback $result $Executable
+    }
+    $requiresOpenaiAuth = Get-AagentJsonProperty $rpcResult "requiresOpenaiAuth"
+    if ($requiresOpenaiAuth -isnot [bool]) {
+        return Invoke-AagentCodexFallback $result $Executable
+    }
+    $account = Get-AagentJsonProperty $rpcResult "account"
+    if ($null -eq $account) {
+        if ($requiresOpenaiAuth) {
+            if (-not (Set-AagentCodexEnvironmentResult $result "success")) {
+                Set-AagentProbeResult $result unusable unknown 4 "Not signed in" codex_not_logged_in `
+                    app_server success | Out-Null
+            }
+        } else {
+            Set-AagentProbeResult $result ready unknown 4 "Custom provider" codex_custom_provider `
+                app_server success | Out-Null
+        }
+        return $result
+    }
+    $accountType = Get-AagentJsonProperty $account "type"
+    if ($accountType -isnot [string]) {
+        return Invoke-AagentCodexFallback $result $Executable
+    }
+    switch ($accountType.ToLowerInvariant()) {
+        "chatgpt" {
+            $planType = Get-AagentJsonProperty $account "planType"
+            if ($planType -isnot [string]) { $planType = "" }
+            $plan = Get-AagentCodexPlan $planType
+            $shadowing = Get-AagentPresentEnvironmentNames @("CODEX_API_KEY")
+            Set-AagentProbeResult $result ready $plan[1] 4 $plan[0] codex_chatgpt_account `
+                app_server success $shadowing | Out-Null
+        }
+        "apikey" {
+            Set-AagentProbeResult $result ready payg_byok 4 "OpenAI API" codex_api_account `
+                app_server success | Out-Null
+        }
+        "amazonbedrock" {
+            Set-AagentProbeResult $result ready unknown 4 "Amazon Bedrock" codex_bedrock_account `
+                app_server success | Out-Null
+        }
+        default {
+            Set-AagentProbeResult $result ready unknown 4 "Codex account" codex_unknown_account `
+                app_server success | Out-Null
+        }
+    }
+    return $result
+}
+
+function Set-AagentOpenCodeEnvironmentResult($Result, [string] $ProbeStatus) {
+    $present = Get-AagentPresentEnvironmentNames @(
+        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"
+    )
+    if ($present.Count -eq 0) { return $false }
+    Set-AagentProbeResult $Result ready unknown 1 "Provider credential" opencode_environment_auth `
+        environment $ProbeStatus $present | Out-Null
+    return $true
+}
+
+function Invoke-AagentOpenCodeProbe([string] $Executable) {
+    $result = New-AagentProbeResult "opencode"
+    $probe = Invoke-AagentProbeProcess $Executable @("auth", "list")
+    if ($probe.Status -ne "success") {
+        if (-not (Set-AagentOpenCodeEnvironmentResult $result $probe.Status)) {
+            Set-AagentProbeResult $result unknown unknown 0 "Unknown" opencode_probe_failed `
+                auth_list $probe.Status | Out-Null
+        }
+        return $result
+    }
+    $text = $probe.Capture
+    $probe.Capture = ""
+    if (-not [string]::IsNullOrWhiteSpace($text) -and -not $text.Contains("No credentials")) {
+        Set-AagentProbeResult $result ready unknown 2 "OpenCode credential" opencode_auth_list `
+            auth_list success | Out-Null
+    } elseif (-not (Set-AagentOpenCodeEnvironmentResult $result "success")) {
+        Set-AagentProbeResult $result unknown unknown 2 "No confirmed credential" opencode_no_auth `
+            auth_list success | Out-Null
+    }
+    return $result
+}
+
+function Read-AagentProbeFile([string] $Path) {
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) {
+            return New-AagentProbeProcessResult "not_found"
+        }
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+        if ($item.PSIsContainer -or $item.Length -gt $AagentProbeMaxBytes) {
+            return New-AagentProbeProcessResult $(if ($item.PSIsContainer) { "read_error" } else { "truncated" })
+        }
+        return New-AagentProbeProcessResult "success" ([IO.File]::ReadAllText($Path))
+    } catch {
+        return New-AagentProbeProcessResult "read_error"
+    }
+}
+
+function Set-AagentGeminiEnvironmentResult($Result, [string] $ProbeStatus) {
+    $api = Get-AagentPresentEnvironmentNames @("GEMINI_API_KEY", "GOOGLE_API_KEY")
+    if ($api.Count -gt 0) {
+        Set-AagentProbeResult $Result ready payg_byok 1 "Gemini API" gemini_api_environment `
+            environment $ProbeStatus $api | Out-Null
+        return $true
+    }
+    $cloud = Get-AagentPresentEnvironmentNames @(
+        "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA",
+        "GOOGLE_GEMINI_BASE_URL", "CLOUD_SHELL", "GEMINI_CLI_USE_COMPUTE_ADC"
+    )
+    if ($cloud.Count -gt 0) {
+        Set-AagentProbeResult $Result ready unknown 1 "Google organization route" gemini_cloud_environment `
+            environment $ProbeStatus $cloud | Out-Null
+        return $true
+    }
+    return $false
+}
+
+function Invoke-AagentGeminiProbe {
+    $result = New-AagentProbeResult "gemini"
+    $homeDirectory = [Environment]::GetEnvironmentVariable("HOME", "Process")
+    if ([string]::IsNullOrEmpty($homeDirectory)) {
+        if (-not (Set-AagentGeminiEnvironmentResult $result "not_found")) {
+            Set-AagentProbeResult $result unknown unknown 0 "Unknown" gemini_settings_missing `
+                user_settings not_found | Out-Null
+        }
+        return $result
+    }
+    $path = [IO.Path]::Combine($homeDirectory, ".gemini", "settings.json")
+    $file = Read-AagentProbeFile $path
+    if ($file.Status -ne "success") {
+        if (-not (Set-AagentGeminiEnvironmentResult $result $file.Status)) {
+            Set-AagentProbeResult $result unknown unknown 0 "Unknown" gemini_settings_unavailable `
+                user_settings $file.Status | Out-Null
+        }
+        return $result
+    }
+    $json = ConvertFrom-AagentProbeJson $file.Capture
+    $file.Capture = ""
+    $security = Get-AagentJsonProperty $json "security"
+    $auth = Get-AagentJsonProperty $security "auth"
+    $selectedType = Get-AagentJsonProperty $auth "selectedType"
+    if ($selectedType -isnot [string]) {
+        if (-not (Set-AagentGeminiEnvironmentResult $result "schema_failure")) {
+            Set-AagentProbeResult $result unknown unknown 0 "Unknown" gemini_settings_schema_failure `
+                user_settings schema_failure | Out-Null
+        }
+        return $result
+    }
+    switch ($selectedType.ToLowerInvariant()) {
+        "oauth-personal" {
+            Set-AagentProbeResult $result ready included_account 4 "Google account" gemini_oauth_personal `
+                user_settings success | Out-Null
+        }
+        "gemini-api-key" {
+            $shadowing = Get-AagentPresentEnvironmentNames @("GEMINI_API_KEY", "GOOGLE_API_KEY")
+            Set-AagentProbeResult $result ready payg_byok 4 "Gemini API" gemini_api_key `
+                user_settings success $shadowing | Out-Null
+        }
+        { $_ -in @("vertex-ai", "cloud-shell", "compute-default-credentials", "gateway") } {
+            $shadowing = Get-AagentPresentEnvironmentNames @(
+                "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GEMINI_BASE_URL"
+            )
+            Set-AagentProbeResult $result ready unknown 4 "Google organization route" gemini_organization_auth `
+                user_settings success $shadowing | Out-Null
+        }
+        default {
+            if (-not (Set-AagentGeminiEnvironmentResult $result "schema_failure")) {
+                Set-AagentProbeResult $result unknown unknown 0 "Unknown" gemini_unknown_auth_type `
+                    user_settings schema_failure | Out-Null
+            }
+        }
+    }
+    return $result
+}
+
+function Invoke-AagentAmpProbe {
+    $result = New-AagentProbeResult "amp"
+    if (Test-AagentEnvironmentPresent "AMP_API_KEY") {
+        Set-AagentProbeResult $result ready unknown 1 "Amp account credential" amp_environment_auth `
+            environment environment_only @("AMP_API_KEY") | Out-Null
+    } else {
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" amp_no_passive_probe `
+            none skipped_no_passive | Out-Null
+    }
+    return $result
+}
+
+function Invoke-AagentProviderProbe([string] $Provider, [string] $Executable = "") {
+    switch ($Provider) {
+        "claude" { return Invoke-AagentClaudeProbe $Executable }
+        "codex" { return Invoke-AagentCodexProbe $Executable }
+        "opencode" { return Invoke-AagentOpenCodeProbe $Executable }
+        "gemini" { return Invoke-AagentGeminiProbe }
+        "amp" { return Invoke-AagentAmpProbe }
+        default {
+            $result = New-AagentProbeResult $Provider
+            Set-AagentProbeResult $result unknown unknown 0 "Unknown" unsupported_probe none unsupported | Out-Null
+            return $result
+        }
+    }
+}
+
 function Resolve-AagentPhysicalPath([string] $Path) {
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     $isLink = -not [string]::IsNullOrEmpty($item.LinkType)

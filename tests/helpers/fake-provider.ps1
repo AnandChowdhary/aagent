@@ -97,6 +97,30 @@ if ($kind -eq "probe") {
     $stdout = $env:AAGENT_FAKE_PROBE_STDOUT
     $stderr = $env:AAGENT_FAKE_PROBE_STDERR
     $statusText = $env:AAGENT_FAKE_PROBE_STATUS
+    $probeProfile = if ($provider -eq "claude" -and $ProviderArguments[0] -eq "auth") {
+        "CLAUDE"
+    } elseif ($provider -eq "codex" -and $ProviderArguments[0] -eq "app-server") {
+        "CODEX_APP_SERVER"
+    } elseif ($provider -eq "codex" -and $ProviderArguments[0] -eq "login") {
+        "CODEX_LOGIN"
+    } elseif ($provider -eq "opencode" -and $ProviderArguments[0] -eq "auth") {
+        "OPENCODE"
+    } else {
+        ""
+    }
+    if (-not [string]::IsNullOrEmpty($probeProfile)) {
+        $profileDelay = [Environment]::GetEnvironmentVariable("AAGENT_FAKE_${probeProfile}_DELAY", "Process")
+        $profileStdout = [Environment]::GetEnvironmentVariable("AAGENT_FAKE_${probeProfile}_STDOUT", "Process")
+        $profileStderr = [Environment]::GetEnvironmentVariable("AAGENT_FAKE_${probeProfile}_STDERR", "Process")
+        $profileStatus = [Environment]::GetEnvironmentVariable("AAGENT_FAKE_${probeProfile}_STATUS", "Process")
+        $profileBytes = [Environment]::GetEnvironmentVariable("AAGENT_FAKE_${probeProfile}_BYTES", "Process")
+        if ($null -ne $profileDelay) { $delay = $profileDelay }
+        if ($null -ne $profileStdout) { $stdout = $profileStdout }
+        if ($null -ne $profileStderr) { $stderr = $profileStderr }
+        if ($null -ne $profileStatus) { $statusText = $profileStatus }
+        if ($null -ne $profileBytes) { $outputBytes = $profileBytes }
+    }
+    if ($null -eq $outputBytes) { $outputBytes = $env:AAGENT_FAKE_PROBE_BYTES }
 } else {
     $delay = $env:AAGENT_FAKE_RUN_DELAY
     $stdout = $env:AAGENT_FAKE_RUN_STDOUT
@@ -108,6 +132,9 @@ if (-not [string]::IsNullOrEmpty($delay) -and [double] $delay -ne 0) {
     Start-Sleep -Milliseconds ([int] ([double] $delay * 1000))
 }
 
+if (-not [string]::IsNullOrEmpty($outputBytes) -and [int] $outputBytes -gt 0) {
+    [Console]::Out.Write("x" * [int] $outputBytes)
+}
 if ($null -ne $stdout) {
     [Console]::Out.Write($stdout)
 }
