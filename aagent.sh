@@ -700,6 +700,34 @@ aagent_collect_present_environment_names() {
     done
 }
 
+aagent_collect_claude_custom_route_environment_names() {
+    aagent_collect_present_environment_names \
+        CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_MANTLE \
+        CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY \
+        CLAUDE_CODE_USE_ANTHROPIC_AWS \
+        ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL \
+        ANTHROPIC_BEDROCK_BASE_URL ANTHROPIC_BEDROCK_MANTLE_BASE_URL \
+        ANTHROPIC_AWS_BASE_URL ANTHROPIC_VERTEX_BASE_URL \
+        ANTHROPIC_FOUNDRY_BASE_URL ANTHROPIC_FOUNDRY_RESOURCE \
+        ANTHROPIC_FOUNDRY_API_KEY AWS_BEARER_TOKEN_BEDROCK \
+        ANTHROPIC_CUSTOM_HEADERS
+    AAGENT_CLAUDE_CUSTOM_ROUTE_ENVIRONMENT_NAMES="$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+}
+
+aagent_collect_claude_shadowing_environment_names() {
+    aagent_collect_present_environment_names \
+        CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_MANTLE \
+        CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY \
+        CLAUDE_CODE_USE_ANTHROPIC_AWS \
+        ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_BASE_URL \
+        ANTHROPIC_BEDROCK_BASE_URL ANTHROPIC_BEDROCK_MANTLE_BASE_URL \
+        ANTHROPIC_AWS_BASE_URL ANTHROPIC_VERTEX_BASE_URL \
+        ANTHROPIC_FOUNDRY_BASE_URL ANTHROPIC_FOUNDRY_RESOURCE \
+        ANTHROPIC_FOUNDRY_API_KEY AWS_BEARER_TOKEN_BEDROCK \
+        ANTHROPIC_CUSTOM_HEADERS
+    AAGENT_CLAUDE_SHADOWING_ENVIRONMENT_NAMES="$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+}
+
 aagent_run_probe_process() {
     local executable="$1"
     local input="$2"
@@ -798,16 +826,11 @@ aagent_ascii_lower() {
 aagent_probe_claude_from_environment() {
     local probe_status="$1"
 
-    aagent_collect_present_environment_names \
-        CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
-    if [[ -n "$AAGENT_PRESENT_ENVIRONMENT_NAMES" ]]; then
+    aagent_collect_claude_custom_route_environment_names
+    if [[ -n "$AAGENT_CLAUDE_CUSTOM_ROUTE_ENVIRONMENT_NAMES" ]]; then
         aagent_set_probe_result ready unknown 1 "Organization route" \
-            claude_cloud_environment environment "$probe_status" "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
-        return 0
-    fi
-    if aagent_environment_has ANTHROPIC_AUTH_TOKEN; then
-        aagent_set_probe_result ready unknown 1 "Bearer or gateway" \
-            claude_bearer_environment environment "$probe_status" ANTHROPIC_AUTH_TOKEN
+            claude_custom_route_environment environment "$probe_status" \
+            "$AAGENT_CLAUDE_CUSTOM_ROUTE_ENVIRONMENT_NAMES"
         return 0
     fi
     if aagent_environment_has ANTHROPIC_API_KEY; then
@@ -878,21 +901,19 @@ aagent_probe_claude() {
     provider_lower="$(aagent_ascii_lower "$api_provider")"
     key_source_lower="$(aagent_ascii_lower "$key_source")"
     subscription_lower="$(aagent_ascii_lower "$subscription_type")"
-    aagent_collect_present_environment_names \
-        CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY \
-        ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY
+    aagent_collect_claude_shadowing_environment_names
 
     if [[ "$provider_lower" == *bedrock* || "$provider_lower" == *vertex* || "$provider_lower" == *foundry* ||
         "$auth_lower" == *bedrock* || "$auth_lower" == *vertex* || "$auth_lower" == *foundry* ]]; then
         aagent_set_probe_result ready unknown 3 "Organization route" claude_cloud_status \
-            auth_status success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+            auth_status success "$AAGENT_CLAUDE_SHADOWING_ENVIRONMENT_NAMES"
     elif [[ "$auth_lower" == *bearer* || "$auth_lower" == *gateway* || "$key_source_lower" == *helper* ]]; then
         aagent_set_probe_result ready unknown 3 "Bearer or helper" claude_gateway_status \
-            auth_status success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+            auth_status success "$AAGENT_CLAUDE_SHADOWING_ENVIRONMENT_NAMES"
     elif [[ "$auth_lower" == *api* || "$auth_lower" == *console* || "$provider_lower" == *console* ||
         "$key_source_lower" == *api* ]]; then
         aagent_set_probe_result ready payg_byok 3 "Anthropic API" claude_api_status \
-            auth_status success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+            auth_status success "$AAGENT_CLAUDE_SHADOWING_ENVIRONMENT_NAMES"
     elif [[ -n "$subscription_type" || "$provider_lower" == *claude.ai* || "$auth_lower" == *claude.ai* ||
         "$auth_lower" == *oauth* ]]; then
         case "$subscription_lower" in
@@ -902,10 +923,10 @@ aagent_probe_claude() {
             enterprise*) label="Claude Enterprise"; funding="included_confirmed" ;;
         esac
         aagent_set_probe_result ready "$funding" 3 "$label" claude_subscription_status \
-            auth_status success "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+            auth_status success "$AAGENT_CLAUDE_SHADOWING_ENVIRONMENT_NAMES"
     else
         aagent_set_probe_result ready unknown 3 "Claude account" claude_unknown_status auth_status success \
-            "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+            "$AAGENT_CLAUDE_SHADOWING_ENVIRONMENT_NAMES"
     fi
 }
 
@@ -1249,6 +1270,88 @@ aagent_probe_provider() {
     esac
 }
 
+aagent_reset_auth_environment_plan() {
+    AAGENT_AUTH_ENV_SET_NAME=""
+    AAGENT_AUTH_ENV_SET_SOURCE_NAME=""
+    AAGENT_AUTH_ENV_UNSET_NAME=""
+    AAGENT_AUTH_ADJUSTMENT_NOTICE=""
+}
+
+aagent_project_probe_for_auth_policy() {
+    local provider="$1"
+
+    aagent_reset_auth_environment_plan
+    case "$provider" in
+        claude)
+            aagent_collect_claude_custom_route_environment_names
+            if [[ -n "$AAGENT_CLAUDE_CUSTOM_ROUTE_ENVIRONMENT_NAMES" ]]; then
+                if [[ "$AAGENT_PROBE_READINESS" == "ready" ]]; then
+                    AAGENT_PROBE_FUNDING_CLASS="unknown"
+                    AAGENT_PROBE_PLAN_LABEL="Organization route"
+                    AAGENT_PROBE_REASON_CODE="claude_ambiguous_shadowing"
+                    AAGENT_PROBE_SHADOWING_VARIABLES="$AAGENT_CLAUDE_CUSTOM_ROUTE_ENVIRONMENT_NAMES"
+                    if aagent_environment_has ANTHROPIC_API_KEY; then
+                        AAGENT_PROBE_SHADOWING_VARIABLES+=",ANTHROPIC_API_KEY"
+                    fi
+                fi
+                return 0
+            fi
+            if [[ "$AAGENT_PROBE_REASON_CODE" == "claude_cloud_status" ||
+                "$AAGENT_PROBE_REASON_CODE" == "claude_gateway_status" ]]; then
+                return 0
+            fi
+
+            if aagent_environment_has ANTHROPIC_API_KEY; then
+                if [[ "$AAGENT_EFFECTIVE_AUTH_POLICY" == "prefer-included" &&
+                    "$AAGENT_PROBE_REASON_CODE" == "claude_subscription_status" &&
+                    "$AAGENT_PROBE_FUNDING_CLASS" == "included_confirmed" ]]; then
+                    AAGENT_AUTH_ENV_UNSET_NAME="ANTHROPIC_API_KEY"
+                    AAGENT_AUTH_ADJUSTMENT_NOTICE="using claude subscription; omitting ANTHROPIC_API_KEY from the child process"
+                else
+                    AAGENT_PROBE_READINESS="ready"
+                    AAGENT_PROBE_FUNDING_CLASS="payg_byok"
+                    AAGENT_PROBE_PLAN_LABEL="Anthropic API"
+                    AAGENT_PROBE_REASON_CODE="claude_native_api_override"
+                    AAGENT_PROBE_SHADOWING_VARIABLES="ANTHROPIC_API_KEY"
+                fi
+            fi
+            ;;
+        codex)
+            if [[ "$AAGENT_PROBE_REASON_CODE" == "codex_custom_provider" ||
+                "$AAGENT_PROBE_REASON_CODE" == "codex_bedrock_account" ]]; then
+                return 0
+            fi
+            if aagent_environment_has CODEX_API_KEY; then
+                if [[ "$AAGENT_EFFECTIVE_AUTH_POLICY" == "prefer-included" &&
+                    "$AAGENT_PROBE_REASON_CODE" == "codex_chatgpt_account" ]]; then
+                    AAGENT_AUTH_ENV_UNSET_NAME="CODEX_API_KEY"
+                    AAGENT_AUTH_ADJUSTMENT_NOTICE="using codex ChatGPT account; omitting CODEX_API_KEY from the child process"
+                else
+                    AAGENT_PROBE_READINESS="ready"
+                    AAGENT_PROBE_FUNDING_CLASS="payg_byok"
+                    AAGENT_PROBE_PLAN_LABEL="OpenAI API"
+                    AAGENT_PROBE_REASON_CODE="codex_native_api_override"
+                    AAGENT_PROBE_SHADOWING_VARIABLES="CODEX_API_KEY"
+                fi
+            elif aagent_environment_has OPENAI_API_KEY; then
+                if [[ "$AAGENT_EFFECTIVE_AUTH_POLICY" == "prefer-included" &&
+                    "$AAGENT_PROBE_FUNDING_CLASS" == "payg_byok" ]]; then
+                    AAGENT_AUTH_ENV_SET_NAME="CODEX_API_KEY"
+                    AAGENT_AUTH_ENV_SET_SOURCE_NAME="OPENAI_API_KEY"
+                    AAGENT_AUTH_ADJUSTMENT_NOTICE="using codex metered API; mapping OPENAI_API_KEY to CODEX_API_KEY for the child process"
+                elif [[ "$AAGENT_EFFECTIVE_AUTH_POLICY" == "native" &&
+                    "$AAGENT_PROBE_REASON_CODE" == "codex_openai_environment" ]]; then
+                    AAGENT_PROBE_READINESS="unknown"
+                    AAGENT_PROBE_FUNDING_CLASS="unknown"
+                    AAGENT_PROBE_CONFIDENCE_RANK=0
+                    AAGENT_PROBE_PLAN_LABEL="Unknown"
+                    AAGENT_PROBE_REASON_CODE="codex_native_openai_ignored"
+                fi
+            fi
+            ;;
+    esac
+}
+
 aagent_reset_selection() {
     AAGENT_SELECTION_ADAPTER_INDEXES=()
     AAGENT_SELECTION_PROVIDER_IDS=()
@@ -1258,6 +1361,11 @@ aagent_reset_selection() {
     AAGENT_SELECTION_CONFIDENCE_RANKS=()
     AAGENT_SELECTION_PLAN_LABELS=()
     AAGENT_SELECTION_PROBE_REASONS=()
+    AAGENT_SELECTION_SHADOWING_VARIABLES=()
+    AAGENT_SELECTION_AUTH_SET_NAMES=()
+    AAGENT_SELECTION_AUTH_SET_SOURCE_NAMES=()
+    AAGENT_SELECTION_AUTH_UNSET_NAMES=()
+    AAGENT_SELECTION_AUTH_NOTICES=()
     AAGENT_SELECTION_PRIORITY_POSITIONS=()
     AAGENT_SELECTION_POPULARITY_POSITIONS=()
     AAGENT_SELECTION_REGISTRY_POSITIONS=()
@@ -1331,6 +1439,11 @@ aagent_add_selection_candidate() {
     local popularity_position="$9"
     shift 9
     local registry_position="$1"
+    local shadowing_variables="${2-}"
+    local auth_set_name="${3-}"
+    local auth_set_source_name="${4-}"
+    local auth_unset_name="${5-}"
+    local auth_notice="${6-}"
     local readiness_score funding_score priority_position priority_score
     local eligible=1 exclusion=""
 
@@ -1365,6 +1478,11 @@ aagent_add_selection_candidate() {
     AAGENT_SELECTION_CONFIDENCE_RANKS+=("$confidence")
     AAGENT_SELECTION_PLAN_LABELS+=("$plan_label")
     AAGENT_SELECTION_PROBE_REASONS+=("$probe_reason")
+    AAGENT_SELECTION_SHADOWING_VARIABLES+=("$shadowing_variables")
+    AAGENT_SELECTION_AUTH_SET_NAMES+=("$auth_set_name")
+    AAGENT_SELECTION_AUTH_SET_SOURCE_NAMES+=("$auth_set_source_name")
+    AAGENT_SELECTION_AUTH_UNSET_NAMES+=("$auth_unset_name")
+    AAGENT_SELECTION_AUTH_NOTICES+=("$auth_notice")
     AAGENT_SELECTION_PRIORITY_POSITIONS+=("$priority_position")
     AAGENT_SELECTION_POPULARITY_POSITIONS+=("$popularity_position")
     AAGENT_SELECTION_REGISTRY_POSITIONS+=("$registry_position")
@@ -1497,6 +1615,7 @@ aagent_build_automatic_candidates() {
         [[ "${AAGENT_DISCOVERY_STATUSES[$index]}" == "installed" ]] || continue
         provider="${AAGENT_ADAPTER_IDS[$index]}"
         aagent_probe_provider "$provider" "${AAGENT_DISCOVERY_PATHS[$index]}"
+        aagent_project_probe_for_auth_policy "$provider"
         aagent_add_selection_candidate \
             "$index" \
             "$provider" \
@@ -1507,7 +1626,12 @@ aagent_build_automatic_candidates() {
             "$AAGENT_PROBE_PLAN_LABEL" \
             "$AAGENT_PROBE_REASON_CODE" \
             "${AAGENT_ADAPTER_POPULARITY[$index]}" \
-            "${AAGENT_ADAPTER_REGISTRY_ORDER[$index]}"
+            "${AAGENT_ADAPTER_REGISTRY_ORDER[$index]}" \
+            "$AAGENT_PROBE_SHADOWING_VARIABLES" \
+            "$AAGENT_AUTH_ENV_SET_NAME" \
+            "$AAGENT_AUTH_ENV_SET_SOURCE_NAME" \
+            "$AAGENT_AUTH_ENV_UNSET_NAME" \
+            "$AAGENT_AUTH_ADJUSTMENT_NOTICE"
     done
 }
 
@@ -1594,6 +1718,7 @@ aagent_reset_launch_plan() {
     AAGENT_LAUNCH_PROVIDER=""
     AAGENT_LAUNCH_REASON=""
     AAGENT_LAUNCH_NOTICE=""
+    AAGENT_LAUNCH_ADJUSTMENT_NOTICES=()
 }
 
 aagent_is_environment_name() {
@@ -1663,6 +1788,35 @@ aagent_launch_plan_unset_environment() {
         return "$AAGENT_EXIT_SOFTWARE"
     fi
     AAGENT_LAUNCH_ENV_UNSET_NAMES+=("$name")
+}
+
+aagent_apply_auth_environment_plan_to_launch() {
+    local set_name="${1-}"
+    local set_source_name="${2-}"
+    local unset_name="${3-}"
+    local notice="${4-}"
+
+    if [[ -n "$set_name" || -n "$set_source_name" ]]; then
+        if [[ "$set_name" != "CODEX_API_KEY" || "$set_source_name" != "OPENAI_API_KEY" ||
+            -n "$unset_name" ]] || ! aagent_environment_has OPENAI_API_KEY; then
+            printf 'aagent: invalid child authentication environment plan\n' >&2
+            return "$AAGENT_EXIT_SOFTWARE"
+        fi
+        aagent_launch_plan_set_environment "$set_name" "$OPENAI_API_KEY" || return $?
+    elif [[ -n "$unset_name" ]]; then
+        case "$unset_name" in
+            ANTHROPIC_API_KEY|CODEX_API_KEY)
+                aagent_launch_plan_unset_environment "$unset_name" || return $?
+                ;;
+            *)
+                printf 'aagent: invalid child authentication environment plan\n' >&2
+                return "$AAGENT_EXIT_SOFTWARE"
+                ;;
+        esac
+    fi
+    if [[ -n "$notice" ]]; then
+        AAGENT_LAUNCH_ADJUSTMENT_NOTICES+=("$notice")
+    fi
 }
 
 aagent_launch_plan_set_display_arguments() {
@@ -1778,6 +1932,11 @@ aagent_execute_launch_plan() {
     fi
 
     aagent_write_notice "$quiet" "$AAGENT_LAUNCH_NOTICE"
+    local adjustment_notice
+    for adjustment_notice in \
+        "${AAGENT_LAUNCH_ADJUSTMENT_NOTICES[@]+"${AAGENT_LAUNCH_ADJUSTMENT_NOTICES[@]}"}"; do
+        aagent_write_notice "$quiet" "$adjustment_notice"
+    done
 
     case "$AAGENT_LAUNCH_STDIN_MODE" in
         data)
@@ -1986,6 +2145,14 @@ aagent_run_explicit_provider() {
         return "$AAGENT_EXIT_USAGE"
     fi
 
+    aagent_reset_auth_environment_plan
+    case "$provider" in
+        claude|codex)
+            aagent_probe_provider "$provider" "$AAGENT_RESOLVED_PATH"
+            aagent_project_probe_for_auth_policy "$provider"
+            ;;
+    esac
+
     if aagent_build_adapter_launch_plan \
         "$provider" \
         "$AAGENT_RESOLVED_PATH" \
@@ -2000,6 +2167,11 @@ aagent_run_explicit_provider() {
         fi
         return "$status"
     fi
+    aagent_apply_auth_environment_plan_to_launch \
+        "$AAGENT_AUTH_ENV_SET_NAME" \
+        "$AAGENT_AUTH_ENV_SET_SOURCE_NAME" \
+        "$AAGENT_AUTH_ENV_UNSET_NAME" \
+        "$AAGENT_AUTH_ADJUSTMENT_NOTICE" || return $?
 
     if aagent_execute_launch_plan "$AAGENT_DRY_RUN" "$AAGENT_QUIET"; then
         return "$AAGENT_EXIT_OK"
@@ -2040,6 +2212,11 @@ aagent_run_automatic_provider() {
 
     AAGENT_LAUNCH_REASON="$AAGENT_SELECTION_REASON_CODE ($AAGENT_SELECTION_REASON_DISPLAY)"
     AAGENT_LAUNCH_NOTICE="$AAGENT_SELECTION_NOTICE"
+    aagent_apply_auth_environment_plan_to_launch \
+        "${AAGENT_SELECTION_AUTH_SET_NAMES[$winner]}" \
+        "${AAGENT_SELECTION_AUTH_SET_SOURCE_NAMES[$winner]}" \
+        "${AAGENT_SELECTION_AUTH_UNSET_NAMES[$winner]}" \
+        "${AAGENT_SELECTION_AUTH_NOTICES[$winner]}" || return $?
     if aagent_execute_launch_plan "$AAGENT_DRY_RUN" "$AAGENT_QUIET"; then
         return "$AAGENT_EXIT_OK"
     else

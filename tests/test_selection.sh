@@ -138,7 +138,13 @@ selection_environment_names=(
     AAGENT_FAKE_CODEX_APP_SERVER_STATUS AAGENT_FAKE_CODEX_LOGIN_STDERR
     AAGENT_FAKE_CODEX_LOGIN_STATUS AAGENT_FAKE_OPENCODE_STDOUT AAGENT_FAKE_OPENCODE_STATUS
     AAGENT_FAKE_RUN_STDOUT AAGENT_FAKE_RUN_STDERR AAGENT_FAKE_RUN_STATUS
-    ANTHROPIC_API_KEY CODEX_API_KEY OPENAI_API_KEY AMP_API_KEY
+    ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
+    ANTHROPIC_BEDROCK_BASE_URL ANTHROPIC_BEDROCK_MANTLE_BASE_URL ANTHROPIC_AWS_BASE_URL
+    ANTHROPIC_VERTEX_BASE_URL ANTHROPIC_FOUNDRY_BASE_URL ANTHROPIC_FOUNDRY_RESOURCE
+    ANTHROPIC_FOUNDRY_API_KEY AWS_BEARER_TOKEN_BEDROCK ANTHROPIC_CUSTOM_HEADERS
+    CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_MANTLE CLAUDE_CODE_USE_VERTEX
+    CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_USE_ANTHROPIC_AWS
+    CODEX_API_KEY OPENAI_API_KEY AMP_API_KEY
 )
 
 cleanup_selection_test() {
@@ -260,11 +266,13 @@ assert_contains "$(<"$test_dir/empty.stderr")" "no supported coding agent is ins
 clear_selection_case
 export AAGENT_CLAUDE_BIN="$fake_bin/claude"
 export AAGENT_CODEX_BIN="$fake_bin/codex"
-export AAGENT_FAKE_CLAUDE_STDOUT='probe-must-not-run'
+export AAGENT_FAKE_CLAUDE_STDOUT='{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro","apiProvider":"claude.ai"}'
 export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='probe-must-not-run'
 run_wrapper "$test_dir/explicit" --provider claude "say hello"
 assert_equals "$AAGENT_TEST_STATUS" 0 "explicit provider failed"
-[[ ! -e "$record_dir/probe.count" ]] || fail "explicit provider entered automatic probing"
+assert_equals "$(tr -d '\r\n' < "$record_dir/probe.count")" 1 \
+    "explicit provider probed more than its selected auth policy"
+[[ ! -e "$record_dir/codex.probe.1.record" ]] || fail "explicit provider probed an unselected provider"
 find "$record_dir" -name 'claude.run.*.record' -print -quit | grep -q . || fail "explicit provider did not run"
 
 clear_selection_case

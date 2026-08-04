@@ -18,8 +18,10 @@ Record protocol version 1 contains:
 - values for explicitly safe test-only names in `AAGENT_FAKE_ENV_CAPTURE`.
 
 Presence-only environment variables are never recorded by value. Tests use
-this distinction for authentication variables and reserve exact value capture
-for nonsecret sentinels.
+this distinction for authentication variables. The auth-policy mapping fixture
+may explicitly capture a seeded fake value to prove byte-for-byte child-only
+mapping; the test compares it only inside its private temporary directory and
+never prints it.
 
 Run responses are controlled with `AAGENT_FAKE_RUN_STDOUT`,
 `AAGENT_FAKE_RUN_STDERR`, `AAGENT_FAKE_RUN_STATUS`, and

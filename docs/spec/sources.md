@@ -8,6 +8,7 @@ used for the interface and selection survey.
 - Claude Code: [headless mode](https://code.claude.com/docs/en/headless),
   [CLI reference](https://code.claude.com/docs/en/cli-reference),
   [authentication and precedence](https://code.claude.com/docs/en/iam),
+  [environment variables](https://code.claude.com/docs/en/env-vars),
   [status-line rate limits](https://code.claude.com/docs/en/statusline#rate-limit-usage)
 - Codex CLI: [non-interactive mode](https://developers.openai.com/codex/noninteractive),
   [CLI reference](https://developers.openai.com/codex/cli/reference),

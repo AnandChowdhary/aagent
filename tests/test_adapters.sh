@@ -175,14 +175,29 @@ work_dir="$test_dir/working directory 🌍"
 mkdir -p "$HOME" "$fake_bin" "$work_dir"
 expected_work_dir="$(cd "$work_dir" && pwd -P)"
 
+adapter_environment_names=(
+    AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
+    AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_AMP_BIN AAGENT_GEMINI_BIN
+    AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
+    AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
+    AAGENT_FAKE_CLAUDE_STDOUT AAGENT_FAKE_CLAUDE_STDERR AAGENT_FAKE_CLAUDE_STATUS
+    AAGENT_FAKE_CODEX_APP_SERVER_STDOUT AAGENT_FAKE_CODEX_APP_SERVER_STDERR
+    AAGENT_FAKE_CODEX_APP_SERVER_STATUS AAGENT_FAKE_CODEX_LOGIN_STDOUT
+    AAGENT_FAKE_CODEX_LOGIN_STDERR AAGENT_FAKE_CODEX_LOGIN_STATUS
+    ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
+    CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
+    CODEX_API_KEY OPENAI_API_KEY
+)
+for environment_name in "${adapter_environment_names[@]}"; do
+    unset "$environment_name" 2>/dev/null || true
+done
+
 providers=(claude codex opencode amp gemini)
 for provider in "${providers[@]}"; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"
 done
 export PATH="$fake_bin:$original_path"
-export AAGENT_FAKE_INVOCATION_KIND="run"
-
 prompt=$'fix the "quoted" issue 🌍\nand keep formatting'
 stdin_payload=$'stdin only\nsecond line\n\n'
 both_prompt=$'review this change\ncarefully'
@@ -198,6 +213,8 @@ for provider in "${providers[@]}"; do
     export AAGENT_FAKE_RUN_STDOUT="provider-stdout-$provider"
     export AAGENT_FAKE_RUN_STDERR="provider-stderr-$provider"
     export AAGENT_FAKE_RUN_STATUS="0"
+    export AAGENT_FAKE_CLAUDE_STDOUT='{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max","apiProvider":"claude.ai"}'
+    export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}}'
 
     model="$(model_for "$provider")"
     display_name="$(display_name_for "$provider")"

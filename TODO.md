@@ -581,55 +581,55 @@ Deliverable: the exact lexicographic selection formula and explainable result
 Dependencies: Phases 7 and 8
 Deliverable: narrowly scoped cost-saving overrides without parent mutation
 
-- [ ] **P9-01 Build a child-environment plan.**
+- [x] **P9-01 Build a child-environment plan.**
   Represent set/omit actions by allowlisted variable name; never mutate the
   wrapper process environment during classification or the caller environment
   after exit.
 
-- [ ] **P9-02 Implement Claude subscription shadow handling.**
+- [x] **P9-02 Implement Claude subscription shadow handling.**
   Under `prefer-included`, omit `ANTHROPIC_API_KEY` from the Claude child only
   when Claude.ai subscription access is confirmed and no other custom routing
   signal makes the active path ambiguous.
 
-- [ ] **P9-03 Protect Claude custom routes.**
+- [x] **P9-03 Protect Claude custom routes.**
   Do not strip base URLs, bearer tokens, credential helpers, Bedrock, Vertex,
   Foundry, gateway, or organization-routing configuration; classify the path
   as documented or `unknown`.
 
-- [ ] **P9-04 Implement Codex subscription shadow handling.**
+- [x] **P9-04 Implement Codex subscription shadow handling.**
   Under `prefer-included`, omit `CODEX_API_KEY` from the Codex child only when
   ChatGPT account auth is confirmed.
 
-- [ ] **P9-05 Implement Codex metered fallback mapping.**
+- [x] **P9-05 Implement Codex metered fallback mapping.**
   When Codex is deliberately selected as `payg_byok`, `CODEX_API_KEY` is absent,
   and `OPENAI_API_KEY` is present, map it to child `CODEX_API_KEY` and identify
   that wrapper behavior by variable names only.
 
-- [ ] **P9-06 Implement native auth policy.**
+- [x] **P9-06 Implement native auth policy.**
   `--auth-policy native` and its environment/config equivalents disable every
   child set/omit adjustment and classify the path the untouched provider would
   use.
 
-- [ ] **P9-07 Emit safe adjustment notices.**
+- [x] **P9-07 Emit safe adjustment notices.**
   Report only the selected provider, action, and variable name on stderr;
   respect `--quiet` and never display a before/after value.
 
-- [ ] **P9-08 Keep dry-run values redacted.**
+- [x] **P9-08 Keep dry-run values redacted.**
   Show that a variable would be set or omitted without rendering its value,
   length, prefix, hash, source-file content, or token fingerprint.
 
-- [ ] **P9-09 Prove parent immutability.**
+- [x] **P9-09 Prove parent immutability.**
   Tests must inspect the wrapper's parent test process after success, provider
   failure, probe failure, dry-run, and interruption.
 
-- [ ] **P9-10 Cover ambiguous shadowing.**
+- [x] **P9-10 Cover ambiguous shadowing.**
   Multiple auth signals, custom provider configuration, helper configuration,
   or incomplete probe evidence must preserve the native environment and produce
   `unknown` rather than an unsafe guess.
 
 ### Phase 9 exit gate
 
-- [ ] Child fixtures observe exactly the allowed set/omit behavior for Claude
+- [x] Child fixtures observe exactly the allowed set/omit behavior for Claude
   and Codex, all native-policy cases are untouched, parent values survive, and
   no output contains a seeded credential value.
 

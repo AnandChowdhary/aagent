@@ -16,6 +16,12 @@ prefers ready included accounts over metered API paths, then breaks exact ties
 by authentication confidence, configured priority, the frozen popularity
 prior, and stable registry order.
 
+The default `prefer-included` authentication policy also keeps metered API
+variables from silently shadowing a confirmed Claude or ChatGPT account. Any
+adjustment is limited to the selected child process, disclosed by environment
+variable name, and redacted in dry-run output. `--auth-policy native` disables
+all such set/omit behavior.
+
 ```bash
 aagent "say hello"
 aagent --provider claude "say hello"
@@ -92,8 +98,8 @@ pwsh ./tests/test_aagent.ps1
 
 GitHub Actions runs the Bash suite on Linux, macOS, and Windows, and the
 PowerShell suite on Windows. Both entrypoints include configuration, passive
-probe, deterministic selection, process-launch, and Tier 1 adapter contract
-tests.
+probe, deterministic selection, child authentication policy, process-launch,
+and Tier 1 adapter contract tests.
 
 The test entrypoints create an isolated home, configuration directory, and
 controlled `PATH`. Tier 1 provider behavior is simulated by credential-free

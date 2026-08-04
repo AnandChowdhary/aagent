@@ -11,6 +11,7 @@ $adapterTest = Join-Path $projectRoot "tests/test_adapters.ps1"
 $configTest = Join-Path $projectRoot "tests/test_config.ps1"
 $probeTest = Join-Path $projectRoot "tests/test_probes.ps1"
 $selectionTest = Join-Path $projectRoot "tests/test_selection.ps1"
+$authPolicyTest = Join-Path $projectRoot "tests/test_auth_policy.ps1"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 function Assert-Equal($Actual, $Expected, [string] $Message) {
@@ -302,6 +303,7 @@ try {
     & $configTest
     & $probeTest
     & $selectionTest
+    & $authPolicyTest
 } finally {
     foreach ($name in $environmentNames) {
         $originalValue = $originalEnvironment[$name]

@@ -383,6 +383,34 @@ function Get-AagentPresentEnvironmentNames([string[]] $Names) {
     return [string[]] $present
 }
 
+function Get-AagentClaudeCustomRouteEnvironmentNames {
+    return Get-AagentPresentEnvironmentNames @(
+        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_MANTLE",
+        "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+        "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+        "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_BEDROCK_BASE_URL", "ANTHROPIC_BEDROCK_MANTLE_BASE_URL",
+        "ANTHROPIC_AWS_BASE_URL", "ANTHROPIC_VERTEX_BASE_URL",
+        "ANTHROPIC_FOUNDRY_BASE_URL", "ANTHROPIC_FOUNDRY_RESOURCE",
+        "ANTHROPIC_FOUNDRY_API_KEY", "AWS_BEARER_TOKEN_BEDROCK",
+        "ANTHROPIC_CUSTOM_HEADERS"
+    )
+}
+
+function Get-AagentClaudeShadowingEnvironmentNames {
+    return Get-AagentPresentEnvironmentNames @(
+        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_MANTLE",
+        "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+        "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+        "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_BEDROCK_BASE_URL", "ANTHROPIC_BEDROCK_MANTLE_BASE_URL",
+        "ANTHROPIC_AWS_BASE_URL", "ANTHROPIC_VERTEX_BASE_URL",
+        "ANTHROPIC_FOUNDRY_BASE_URL", "ANTHROPIC_FOUNDRY_RESOURCE",
+        "ANTHROPIC_FOUNDRY_API_KEY", "AWS_BEARER_TOKEN_BEDROCK",
+        "ANTHROPIC_CUSTOM_HEADERS"
+    )
+}
+
 function Get-AagentProbeCommand([string] $Executable, [string[]] $Arguments) {
     $extension = [IO.Path]::GetExtension($Executable)
     if ($extension -ieq ".ps1") {
@@ -534,17 +562,10 @@ function Get-AagentJsonProperty($Object, [string] $Name) {
 }
 
 function Set-AagentClaudeEnvironmentResult($Result, [string] $ProbeStatus) {
-    $cloud = Get-AagentPresentEnvironmentNames @(
-        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"
-    )
-    if ($cloud.Count -gt 0) {
+    $customRoute = @(Get-AagentClaudeCustomRouteEnvironmentNames)
+    if ($customRoute.Count -gt 0) {
         Set-AagentProbeResult $Result ready unknown 1 "Organization route" `
-            claude_cloud_environment environment $ProbeStatus $cloud | Out-Null
-        return $true
-    }
-    if (Test-AagentEnvironmentPresent "ANTHROPIC_AUTH_TOKEN") {
-        Set-AagentProbeResult $Result ready unknown 1 "Bearer or gateway" `
-            claude_bearer_environment environment $ProbeStatus @("ANTHROPIC_AUTH_TOKEN") | Out-Null
+            claude_custom_route_environment environment $ProbeStatus $customRoute | Out-Null
         return $true
     }
     if (Test-AagentEnvironmentPresent "ANTHROPIC_API_KEY") {
@@ -604,10 +625,7 @@ function Invoke-AagentClaudeProbe([string] $Executable) {
     $subscriptionLower = ([string] $subscriptionType).ToLowerInvariant()
     $providerLower = ([string] $apiProvider).ToLowerInvariant()
     $keySourceLower = ([string] $apiKeySource).ToLowerInvariant()
-    $shadowing = Get-AagentPresentEnvironmentNames @(
-        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
-        "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"
-    )
+    $shadowing = @(Get-AagentClaudeShadowingEnvironmentNames)
 
     if (
         $providerLower -match "bedrock|vertex|foundry" -or
@@ -933,6 +951,95 @@ function Invoke-AagentProviderProbe([string] $Provider, [string] $Executable = "
     }
 }
 
+function New-AagentAuthEnvironmentPlan {
+    return [pscustomobject] @{
+        SetFromEnvironment = [ordered] @{}
+        Unset = [Collections.Generic.List[string]]::new()
+        Notices = [Collections.Generic.List[string]]::new()
+    }
+}
+
+function Resolve-AagentProbeAuthPolicy($Probe, [string] $AuthPolicy) {
+    $plan = New-AagentAuthEnvironmentPlan
+    switch ($Probe.Provider) {
+        "claude" {
+            $customRoute = @(Get-AagentClaudeCustomRouteEnvironmentNames)
+            if ($customRoute.Count -gt 0) {
+                if ($Probe.Readiness -eq "ready") {
+                    $shadowing = [Collections.Generic.List[string]]::new()
+                    foreach ($name in $customRoute) { $shadowing.Add($name) }
+                    if (Test-AagentEnvironmentPresent "ANTHROPIC_API_KEY") {
+                        $shadowing.Add("ANTHROPIC_API_KEY")
+                    }
+                    $Probe.FundingClass = "unknown"
+                    $Probe.PlanLabel = "Organization route"
+                    $Probe.ReasonCode = "claude_ambiguous_shadowing"
+                    $Probe.ShadowingVariables = [string[]] $shadowing
+                }
+                break
+            }
+            if ($Probe.ReasonCode -in @("claude_cloud_status", "claude_gateway_status")) {
+                break
+            }
+
+            if (Test-AagentEnvironmentPresent "ANTHROPIC_API_KEY") {
+                if (
+                    $AuthPolicy -eq "prefer-included" -and
+                    $Probe.ReasonCode -eq "claude_subscription_status" -and
+                    $Probe.FundingClass -eq "included_confirmed"
+                ) {
+                    $plan.Unset.Add("ANTHROPIC_API_KEY")
+                    $plan.Notices.Add(
+                        "using claude subscription; omitting ANTHROPIC_API_KEY from the child process"
+                    )
+                } else {
+                    $Probe.Readiness = "ready"
+                    $Probe.FundingClass = "payg_byok"
+                    $Probe.PlanLabel = "Anthropic API"
+                    $Probe.ReasonCode = "claude_native_api_override"
+                    $Probe.ShadowingVariables = [string[]] @("ANTHROPIC_API_KEY")
+                }
+            }
+        }
+        "codex" {
+            if ($Probe.ReasonCode -in @("codex_custom_provider", "codex_bedrock_account")) {
+                break
+            }
+            if (Test-AagentEnvironmentPresent "CODEX_API_KEY") {
+                if (
+                    $AuthPolicy -eq "prefer-included" -and
+                    $Probe.ReasonCode -eq "codex_chatgpt_account"
+                ) {
+                    $plan.Unset.Add("CODEX_API_KEY")
+                    $plan.Notices.Add(
+                        "using codex ChatGPT account; omitting CODEX_API_KEY from the child process"
+                    )
+                } else {
+                    $Probe.Readiness = "ready"
+                    $Probe.FundingClass = "payg_byok"
+                    $Probe.PlanLabel = "OpenAI API"
+                    $Probe.ReasonCode = "codex_native_api_override"
+                    $Probe.ShadowingVariables = [string[]] @("CODEX_API_KEY")
+                }
+            } elseif (Test-AagentEnvironmentPresent "OPENAI_API_KEY") {
+                if ($AuthPolicy -eq "prefer-included" -and $Probe.FundingClass -eq "payg_byok") {
+                    $plan.SetFromEnvironment["CODEX_API_KEY"] = "OPENAI_API_KEY"
+                    $plan.Notices.Add(
+                        "using codex metered API; mapping OPENAI_API_KEY to CODEX_API_KEY for the child process"
+                    )
+                } elseif ($AuthPolicy -eq "native" -and $Probe.ReasonCode -eq "codex_openai_environment") {
+                    $Probe.Readiness = "unknown"
+                    $Probe.FundingClass = "unknown"
+                    $Probe.ConfidenceRank = 0
+                    $Probe.PlanLabel = "Unknown"
+                    $Probe.ReasonCode = "codex_native_openai_ignored"
+                }
+            }
+        }
+    }
+    return [pscustomobject] @{ Probe = $Probe; EnvironmentPlan = $plan }
+}
+
 function Get-AagentReadinessScore([string] $Readiness) {
     switch ($Readiness) {
         "ready" { return 2 }
@@ -970,7 +1077,8 @@ function New-AagentSelectionCandidate {
         [string] $Path,
         $Probe,
         [string] $Priority,
-        [bool] $AllowLocal
+        [bool] $AllowLocal,
+        $AuthEnvironmentPlan = $null
     )
 
     $readinessScore = Get-AagentReadinessScore $Probe.Readiness
@@ -1002,6 +1110,8 @@ function New-AagentSelectionCandidate {
         ConfidenceRank = [int] $Probe.ConfidenceRank
         PlanLabel = $Probe.PlanLabel
         ProbeReason = $Probe.ReasonCode
+        ShadowingVariables = [string[]] $Probe.ShadowingVariables
+        AuthEnvironmentPlan = $AuthEnvironmentPlan
         PriorityPosition = $priorityPosition
         PopularityPosition = [int] $Adapter.Popularity
         RegistryPosition = [int] $Adapter.RegistryOrder
@@ -1100,12 +1210,14 @@ function Get-AagentAutomaticSelection($Result) {
     foreach ($item in $discovery) {
         if ($item.Status -ne "installed") { continue }
         $probe = Invoke-AagentProviderProbe $item.Id $item.Path
+        $projected = Resolve-AagentProbeAuthPolicy $probe $Result.AuthPolicy
         $candidate = New-AagentSelectionCandidate `
             -Adapter $item.Adapter `
             -Path $item.Path `
-            -Probe $probe `
+            -Probe $projected.Probe `
             -Priority $Result.Priority `
-            -AllowLocal:($Result.AllowLocal -eq "true")
+            -AllowLocal:($Result.AllowLocal -eq "true") `
+            -AuthEnvironmentPlan $projected.EnvironmentPlan
         $candidates.Add($candidate)
     }
     $selection = Select-AagentCandidates ([object[]] $candidates)
@@ -1292,6 +1404,7 @@ function New-AagentLaunchPlan {
         Provider = ""
         Reason = ""
         Notice = ""
+        AdjustmentNotices = [Collections.Generic.List[string]]::new()
     }
 }
 
@@ -1307,6 +1420,32 @@ function Remove-AagentLaunchEnvironment($Plan, [string] $Name) {
         throw "invalid child environment name: $Name"
     }
     $Plan.EnvironmentUnset.Add($Name)
+}
+
+function Add-AagentAuthEnvironmentPlanToLaunch($Plan, $EnvironmentPlan) {
+    if ($null -eq $EnvironmentPlan) { return }
+    if ($EnvironmentPlan.SetFromEnvironment.Count -gt 0 -and $EnvironmentPlan.Unset.Count -gt 0) {
+        throw "invalid child authentication environment plan"
+    }
+    foreach ($entry in $EnvironmentPlan.SetFromEnvironment.GetEnumerator()) {
+        if (
+            $entry.Key -ne "CODEX_API_KEY" -or $entry.Value -ne "OPENAI_API_KEY" -or
+            -not (Test-AagentEnvironmentPresent "OPENAI_API_KEY")
+        ) {
+            throw "invalid child authentication environment plan"
+        }
+        $value = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "Process")
+        Set-AagentLaunchEnvironment $Plan "CODEX_API_KEY" $value
+    }
+    foreach ($name in $EnvironmentPlan.Unset) {
+        if ($name -notin @("ANTHROPIC_API_KEY", "CODEX_API_KEY")) {
+            throw "invalid child authentication environment plan"
+        }
+        Remove-AagentLaunchEnvironment $Plan $name
+    }
+    foreach ($notice in $EnvironmentPlan.Notices) {
+        $Plan.AdjustmentNotices.Add($notice)
+    }
 }
 
 function Set-AagentLaunchDisplayArguments($Plan, [string[]] $Arguments) {
@@ -1400,6 +1539,9 @@ function Invoke-AagentLaunchPlan {
     }
 
     Write-AagentNotice -Quiet:$Quiet -Message $Plan.Notice
+    foreach ($notice in $Plan.AdjustmentNotices) {
+        Write-AagentNotice -Quiet:$Quiet -Message $notice
+    }
 
     $process = $null
     try {
@@ -1640,6 +1782,13 @@ function Invoke-AagentExplicitProvider($Result) {
         return $AagentExitUsage
     }
 
+    $authEnvironmentPlan = New-AagentAuthEnvironmentPlan
+    if ($adapter.Id -in @("claude", "codex")) {
+        $probe = Invoke-AagentProviderProbe $adapter.Id $target.Path
+        $projected = Resolve-AagentProbeAuthPolicy $probe $Result.AuthPolicy
+        $authEnvironmentPlan = $projected.EnvironmentPlan
+    }
+
     $build = New-AagentAdapterLaunchPlan $Result $adapter $target.Path
     if ($build.Status -ne $AagentExitOk) {
         if ($build.Status -eq $AagentExitUsage) {
@@ -1648,6 +1797,12 @@ function Invoke-AagentExplicitProvider($Result) {
             [Console]::Error.WriteLine("aagent: $($build.Error)")
         }
         return $build.Status
+    }
+    try {
+        Add-AagentAuthEnvironmentPlanToLaunch $build.Plan $authEnvironmentPlan
+    } catch {
+        [Console]::Error.WriteLine("aagent: $($_.Exception.Message)")
+        return $AagentExitSoftware
     }
 
     return Invoke-AagentLaunchPlan -Plan $build.Plan -DryRun:$Result.DryRun -Quiet:$Result.Quiet
@@ -1680,6 +1835,12 @@ function Invoke-AagentAutomaticProvider($Result) {
 
     $build.Plan.Reason = "$($selection.ReasonCode) ($($selection.ReasonDisplay))"
     $build.Plan.Notice = $selection.Notice
+    try {
+        Add-AagentAuthEnvironmentPlanToLaunch $build.Plan $selection.Winner.AuthEnvironmentPlan
+    } catch {
+        [Console]::Error.WriteLine("aagent: $($_.Exception.Message)")
+        return $AagentExitSoftware
+    }
     return Invoke-AagentLaunchPlan -Plan $build.Plan -DryRun:$Result.DryRun -Quiet:$Result.Quiet
 }
 

@@ -51,6 +51,11 @@ console for normal Ctrl-C delivery.
 - discovery of Cursor's separate `agent` executable; and
 - `--quiet` and `--dry-run` behavior.
 
+Child authentication policy fixtures additionally verify exact Claude and
+Codex set/omit plans, custom-route and helper ambiguity, native-policy
+classification, opaque Codex fallback mapping, parent immutability after
+success and failure paths, redacted notices, and interruption on Bash.
+
 The selector is also exercised as a pure table-driven comparison in both
 runners so prepaid and local funding classes, unlisted priority behavior, and
 every decisive tuple field remain testable without adding unsupported provider

@@ -166,7 +166,13 @@ $selectionEnvironmentNames = @(
     "AAGENT_FAKE_CODEX_APP_SERVER_STATUS", "AAGENT_FAKE_CODEX_LOGIN_STDERR",
     "AAGENT_FAKE_CODEX_LOGIN_STATUS", "AAGENT_FAKE_OPENCODE_STDOUT", "AAGENT_FAKE_OPENCODE_STATUS",
     "AAGENT_FAKE_RUN_STDOUT", "AAGENT_FAKE_RUN_STDERR", "AAGENT_FAKE_RUN_STATUS",
-    "ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY", "AMP_API_KEY"
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_BEDROCK_BASE_URL", "ANTHROPIC_BEDROCK_MANTLE_BASE_URL", "ANTHROPIC_AWS_BASE_URL",
+    "ANTHROPIC_VERTEX_BASE_URL", "ANTHROPIC_FOUNDRY_BASE_URL", "ANTHROPIC_FOUNDRY_RESOURCE",
+    "ANTHROPIC_FOUNDRY_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "ANTHROPIC_CUSTOM_HEADERS",
+    "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+    "CODEX_API_KEY", "OPENAI_API_KEY", "AMP_API_KEY"
 )
 $originalEnvironment = @{}
 foreach ($name in $selectionEnvironmentNames) {
@@ -291,12 +297,16 @@ try {
     Clear-SelectionCase
     $env:AAGENT_CLAUDE_BIN = Join-Path $fakeBin "claude.ps1"
     $env:AAGENT_CODEX_BIN = Join-Path $fakeBin "codex.ps1"
-    $env:AAGENT_FAKE_CLAUDE_STDOUT = "probe-must-not-run"
+    $env:AAGENT_FAKE_CLAUDE_STDOUT = '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro","apiProvider":"claude.ai"}'
     $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = "probe-must-not-run"
     $processResult = Invoke-SelectionProcess @("--provider", "claude", "say hello")
     Assert-SelectionEqual $processResult.Status 0 "explicit provider failed"
-    if (Test-Path -LiteralPath (Join-Path $recordDir "probe.count")) {
-        throw "explicit provider entered automatic probing"
+    Assert-SelectionEqual `
+        ([IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()) `
+        "1" `
+        "explicit provider probed more than its selected auth policy"
+    if (Test-Path -LiteralPath (Join-Path $recordDir "codex.probe.1.record")) {
+        throw "explicit provider probed an unselected provider"
     }
 
     Clear-SelectionCase
