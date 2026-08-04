@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: Documentation complete; implementation not started
+Current milestone: Phase 1 complete; Phase 2 next
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -79,50 +79,53 @@ Deliverable: one reviewable contract and one ordered implementation ledger
 Dependencies: Phase 0
 Deliverable: deterministic, credential-free fixtures that both runners can use
 
-- [ ] **P1-01 Introduce wrapper status constants.**
+- [x] **P1-01 Introduce wrapper status constants.**
   Define named internal constants for `0`, `64`, `69`, `70`, and `78` in both
   runners; update current unknown-option behavior to use `64`.
 
-- [ ] **P1-02 Turn existing test files into stable entrypoints.**
+- [x] **P1-02 Turn existing test files into stable entrypoints.**
   Keep `tests/test_aagent.sh` and `tests/test_aagent.ps1` as the commands CI
   invokes, even if they dispatch to focused test files later.
 
-- [ ] **P1-03 Add isolated temporary-environment helpers.**
+- [x] **P1-03 Add isolated temporary-environment helpers.**
   Every test must get a unique temporary directory, synthetic `HOME`,
   `XDG_CONFIG_HOME` or `APPDATA`, controlled `PATH`, cleanup trap/finally block,
   and no access to the developer's provider configuration.
 
-- [ ] **P1-04 Define the fake-provider recording protocol.**
+- [x] **P1-04 Define the fake-provider recording protocol.**
   Fake executables must record one argument per line with an unambiguous length
   or encoding, stdin bytes, cwd, selected allowlisted environment variables,
   requested stdout/stderr, and requested exit status.
 
-- [ ] **P1-05 Add fake executables for all Tier 1 command names.**
+- [x] **P1-05 Add fake executables for all Tier 1 command names.**
   Provide test doubles for `claude`, `codex`, `opencode`, `amp`, and `gemini` on
   Bash and PowerShell platforms without invoking real installations.
 
-- [ ] **P1-06 Add fake passive-probe responses.**
+- [x] **P1-06 Add fake passive-probe responses.**
   Fixtures must support valid, missing-field, malformed, delayed, non-zero,
   secret-bearing, and PII-bearing status responses separately from run
   responses.
 
-- [ ] **P1-07 Add reusable assertions.**
+- [x] **P1-07 Add reusable assertions.**
   Assert exact argv order, stdin, cwd, stdout, stderr, status, environment
   presence/absence, lack of unexpected launches, and secret absence in output.
 
-- [ ] **P1-08 Add a provider-launch counter.**
+- [x] **P1-08 Add a provider-launch counter.**
   Tests must prove whether zero, one, or more provider run processes started;
   authentication probe invocations are counted separately.
 
-- [ ] **P1-09 Add shell and PowerShell syntax checks.**
+- [x] **P1-09 Add shell and PowerShell syntax checks.**
   Run `bash -n aagent.sh install.sh tests/test_aagent.sh` and PowerShell parser
   validation before behavioral tests.
 
 ### Phase 1 exit gate
 
-- [ ] A deliberately fake prompt run can capture identical logical argv,
+- [x] A deliberately fake prompt run can capture identical logical argv,
   stdin, cwd, environment, output, and status evidence from both runners; all
   existing help and installer tests still pass.
+
+  Evidence: [PR #1](https://github.com/AnandChowdhary/aagent/pull/1) and
+  [cross-platform CI run 30946990236](https://github.com/AnandChowdhary/aagent/actions/runs/30946990236).
 
 ## Phase 2 - Wrapper argument parsing and input resolution
 
