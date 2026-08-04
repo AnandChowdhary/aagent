@@ -8,6 +8,7 @@ install_script="$project_root/install.sh"
 fake_provider="$project_root/tests/helpers/fake-provider.sh"
 parser_test="$project_root/tests/test_parser.sh"
 discovery_test="$project_root/tests/test_discovery.sh"
+launch_test="$project_root/tests/test_launch.sh"
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -39,7 +40,14 @@ hex_string() {
     printf '%s' "$1" | od -An -v -tx1 | tr -d ' \n'
 }
 
-bash -n "$aagent_script" "$install_script" "$fake_provider" "$parser_test" "$discovery_test" "${BASH_SOURCE[0]}"
+bash -n \
+    "$aagent_script" \
+    "$install_script" \
+    "$fake_provider" \
+    "$parser_test" \
+    "$discovery_test" \
+    "$launch_test" \
+    "${BASH_SOURCE[0]}"
 
 test_dir="$(mktemp -d)"
 original_home="${HOME-}"
@@ -188,5 +196,6 @@ assert_equals "$(tr -d '\r\n' < "$record_dir/run.count")" "5" "probe fixtures ch
 
 bash "$parser_test"
 bash "$discovery_test"
+bash "$launch_test"
 
 printf 'All Bash tests passed.\n'

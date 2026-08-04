@@ -183,6 +183,248 @@ aagent_discover_adapters() {
     done
 }
 
+aagent_reset_launch_plan() {
+    AAGENT_LAUNCH_EXECUTABLE=""
+    AAGENT_LAUNCH_ARGUMENTS=()
+    AAGENT_LAUNCH_CWD=""
+    AAGENT_LAUNCH_STDIN_MODE="closed"
+    AAGENT_LAUNCH_STDIN=""
+    AAGENT_LAUNCH_INPUT_DESCRIPTION="none"
+    AAGENT_LAUNCH_ENV_SET_NAMES=()
+    AAGENT_LAUNCH_ENV_SET_VALUES=()
+    AAGENT_LAUNCH_ENV_UNSET_NAMES=()
+    AAGENT_LAUNCH_DISPLAY_ARGUMENTS=()
+    AAGENT_LAUNCH_PROVIDER=""
+    AAGENT_LAUNCH_REASON=""
+    AAGENT_LAUNCH_NOTICE=""
+}
+
+aagent_is_environment_name() {
+    [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
+}
+
+aagent_create_launch_plan() {
+    local executable="$1"
+    local cwd="$2"
+    local stdin_mode="$3"
+    local stdin_data="$4"
+    local input_description="$5"
+    shift 5
+
+    if [[ -z "$executable" || ! -f "$executable" || ! -x "$executable" ]]; then
+        printf 'aagent: launch executable is unavailable: %s\n' "$executable" >&2
+        return "$AAGENT_EXIT_SOFTWARE"
+    fi
+    if [[ -z "$cwd" || ! -d "$cwd" ]]; then
+        printf 'aagent: launch working directory is unavailable: %s\n' "$cwd" >&2
+        return "$AAGENT_EXIT_SOFTWARE"
+    fi
+    case "$stdin_mode" in
+        inherit|closed|data) ;;
+        *)
+            printf 'aagent: invalid launch stdin mode: %s\n' "$stdin_mode" >&2
+            return "$AAGENT_EXIT_SOFTWARE"
+            ;;
+    esac
+    case "$input_description" in
+        argv|stdin|both|none) ;;
+        *)
+            printf 'aagent: invalid launch input description: %s\n' "$input_description" >&2
+            return "$AAGENT_EXIT_SOFTWARE"
+            ;;
+    esac
+
+    aagent_reset_launch_plan
+    AAGENT_LAUNCH_EXECUTABLE="$executable"
+    AAGENT_LAUNCH_ARGUMENTS=("$@")
+    AAGENT_LAUNCH_CWD="$cwd"
+    AAGENT_LAUNCH_STDIN_MODE="$stdin_mode"
+    AAGENT_LAUNCH_STDIN="$stdin_data"
+    AAGENT_LAUNCH_INPUT_DESCRIPTION="$input_description"
+
+    local argument
+    for argument in "$@"; do
+        AAGENT_LAUNCH_DISPLAY_ARGUMENTS+=("<redacted>")
+    done
+}
+
+aagent_launch_plan_set_environment() {
+    local name="$1"
+    local value="$2"
+    if ! aagent_is_environment_name "$name"; then
+        printf 'aagent: invalid child environment name: %s\n' "$name" >&2
+        return "$AAGENT_EXIT_SOFTWARE"
+    fi
+    AAGENT_LAUNCH_ENV_SET_NAMES+=("$name")
+    AAGENT_LAUNCH_ENV_SET_VALUES+=("$value")
+}
+
+aagent_launch_plan_unset_environment() {
+    local name="$1"
+    if ! aagent_is_environment_name "$name"; then
+        printf 'aagent: invalid child environment name: %s\n' "$name" >&2
+        return "$AAGENT_EXIT_SOFTWARE"
+    fi
+    AAGENT_LAUNCH_ENV_UNSET_NAMES+=("$name")
+}
+
+aagent_launch_plan_set_display_arguments() {
+    if (( $# != ${#AAGENT_LAUNCH_ARGUMENTS[@]} )); then
+        printf 'aagent: launch display argument count differs from argv\n' >&2
+        return "$AAGENT_EXIT_SOFTWARE"
+    fi
+    AAGENT_LAUNCH_DISPLAY_ARGUMENTS=("$@")
+}
+
+aagent_quote_for_display() {
+    printf '%q' "$1"
+}
+
+aagent_print_environment_names() {
+    local label="$1"
+    shift
+    printf '%s:' "$label"
+    if (( $# == 0 )); then
+        printf ' (none)\n'
+        return
+    fi
+
+    local name
+    for name in "$@"; do
+        printf ' %s' "$name"
+    done
+    printf '\n'
+}
+
+aagent_render_launch_plan() {
+    printf 'provider: %s\n' "${AAGENT_LAUNCH_PROVIDER:-unknown}"
+    printf 'reason: %s\n' "${AAGENT_LAUNCH_REASON:-not specified}"
+    printf 'command: '
+    aagent_quote_for_display "$AAGENT_LAUNCH_EXECUTABLE"
+    local argument
+    local index
+    for ((index = 0; index < ${#AAGENT_LAUNCH_DISPLAY_ARGUMENTS[@]}; index++)); do
+        argument="${AAGENT_LAUNCH_DISPLAY_ARGUMENTS[$index]}"
+        printf ' '
+        aagent_quote_for_display "$argument"
+    done
+    printf '\nworking directory: '
+    aagent_quote_for_display "$AAGENT_LAUNCH_CWD"
+    printf '\nstdin: %s\n' "$AAGENT_LAUNCH_INPUT_DESCRIPTION"
+    if (( ${#AAGENT_LAUNCH_ENV_SET_NAMES[@]} > 0 )); then
+        aagent_print_environment_names "set environment" "${AAGENT_LAUNCH_ENV_SET_NAMES[@]}"
+    else
+        aagent_print_environment_names "set environment"
+    fi
+    if (( ${#AAGENT_LAUNCH_ENV_UNSET_NAMES[@]} > 0 )); then
+        aagent_print_environment_names "unset environment" "${AAGENT_LAUNCH_ENV_UNSET_NAMES[@]}"
+    else
+        aagent_print_environment_names "unset environment"
+    fi
+}
+
+aagent_write_notice() {
+    local quiet="$1"
+    local message="$2"
+    if [[ "$quiet" != "1" && -n "$message" ]]; then
+        printf 'aagent: %s\n' "$message" >&2
+    fi
+}
+
+aagent_apply_launch_environment() {
+    local name
+    local index
+
+    for ((index = 0; index < ${#AAGENT_LAUNCH_ENV_UNSET_NAMES[@]}; index++)); do
+        name="${AAGENT_LAUNCH_ENV_UNSET_NAMES[$index]}"
+        unset "$name"
+    done
+    for ((index = 0; index < ${#AAGENT_LAUNCH_ENV_SET_NAMES[@]}; index++)); do
+        name="${AAGENT_LAUNCH_ENV_SET_NAMES[$index]}"
+        export "$name=${AAGENT_LAUNCH_ENV_SET_VALUES[$index]}"
+    done
+}
+
+AAGENT_ACTIVE_CHILD_PID=""
+
+aagent_forward_launch_signal() {
+    local signal="$1"
+    if [[ -n "$AAGENT_ACTIVE_CHILD_PID" ]] && kill -0 "$AAGENT_ACTIVE_CHILD_PID" 2>/dev/null; then
+        kill -s "$signal" "$AAGENT_ACTIVE_CHILD_PID" 2>/dev/null || true
+    fi
+}
+
+aagent_wait_for_launch_child() {
+    local status
+    while true; do
+        if wait "$AAGENT_ACTIVE_CHILD_PID"; then
+            status=0
+            break
+        else
+            status=$?
+        fi
+        if ! kill -0 "$AAGENT_ACTIVE_CHILD_PID" 2>/dev/null; then
+            break
+        fi
+    done
+    AAGENT_ACTIVE_CHILD_PID=""
+    return "$status"
+}
+
+aagent_execute_launch_plan() {
+    local dry_run="${1:-0}"
+    local quiet="${2:-0}"
+
+    if [[ "$dry_run" == "1" ]]; then
+        aagent_render_launch_plan
+        return "$AAGENT_EXIT_OK"
+    fi
+
+    aagent_write_notice "$quiet" "$AAGENT_LAUNCH_NOTICE"
+
+    case "$AAGENT_LAUNCH_STDIN_MODE" in
+        data)
+            (
+                cd -- "$AAGENT_LAUNCH_CWD" || exit "$AAGENT_EXIT_SOFTWARE"
+                aagent_apply_launch_environment
+                exec "$AAGENT_LAUNCH_EXECUTABLE" \
+                    "${AAGENT_LAUNCH_ARGUMENTS[@]+"${AAGENT_LAUNCH_ARGUMENTS[@]}"}"
+            ) < <(printf '%s' "$AAGENT_LAUNCH_STDIN") &
+            ;;
+        closed)
+            (
+                cd -- "$AAGENT_LAUNCH_CWD" || exit "$AAGENT_EXIT_SOFTWARE"
+                aagent_apply_launch_environment
+                exec "$AAGENT_LAUNCH_EXECUTABLE" \
+                    "${AAGENT_LAUNCH_ARGUMENTS[@]+"${AAGENT_LAUNCH_ARGUMENTS[@]}"}"
+            ) </dev/null &
+            ;;
+        inherit)
+            (
+                cd -- "$AAGENT_LAUNCH_CWD" || exit "$AAGENT_EXIT_SOFTWARE"
+                aagent_apply_launch_environment
+                exec "$AAGENT_LAUNCH_EXECUTABLE" \
+                    "${AAGENT_LAUNCH_ARGUMENTS[@]+"${AAGENT_LAUNCH_ARGUMENTS[@]}"}"
+            ) <&0 &
+            ;;
+        *)
+            printf 'aagent: invalid launch stdin mode: %s\n' "$AAGENT_LAUNCH_STDIN_MODE" >&2
+            return "$AAGENT_EXIT_SOFTWARE"
+            ;;
+    esac
+
+    AAGENT_ACTIVE_CHILD_PID=$!
+    trap 'aagent_forward_launch_signal INT' INT
+    trap 'aagent_forward_launch_signal TERM' TERM
+    trap 'aagent_forward_launch_signal HUP' HUP
+
+    local status=0
+    aagent_wait_for_launch_child || status=$?
+
+    trap - INT TERM HUP
+    return "$status"
+}
+
 aagent_print_help() {
     cat <<'EOF'
 aagent

@@ -51,7 +51,17 @@ printf '%s\n' "$count" > "$counter_file"
 
 record_file="$AAGENT_FAKE_RECORD_DIR/$provider.$kind.$count.record"
 stdin_file="$AAGENT_FAKE_RECORD_DIR/.stdin.$$.tmp"
-trap 'rm -f "$stdin_file"' EXIT
+delay_pid=""
+
+# shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap.
+cleanup() {
+    rm -f "$stdin_file"
+    if [[ -n "$delay_pid" ]] && kill -0 "$delay_pid" 2>/dev/null; then
+        kill "$delay_pid" 2>/dev/null || true
+        wait "$delay_pid" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
 
 if [[ -t 0 ]]; then
     : > "$stdin_file"
@@ -61,6 +71,7 @@ fi
 
 {
     printf 'protocol=1\n'
+    printf 'pid=%s\n' "$$"
     printf 'provider.hex=%s\n' "$(hex_string "$provider")"
     printf 'kind=%s\n' "$kind"
     printf 'cwd.hex=%s\n' "$(hex_string "$PWD")"
@@ -123,7 +134,10 @@ else
 fi
 
 if [[ "$delay" != "0" ]]; then
-    sleep "$delay"
+    sleep "$delay" &
+    delay_pid=$!
+    wait "$delay_pid"
+    delay_pid=""
 fi
 
 printf '%s' "$stdout"

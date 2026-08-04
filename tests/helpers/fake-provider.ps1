@@ -61,6 +61,7 @@ $stdin = if ([Console]::IsInputRedirected) {
 
 $record = [Collections.Generic.List[string]]::new()
 $record.Add("protocol=1")
+$record.Add("pid=$PID")
 $record.Add("provider.hex=$(ConvertTo-Hex $provider)")
 $record.Add("kind=$kind")
 $record.Add("cwd.hex=$(ConvertTo-Hex (Get-Location).ProviderPath)")

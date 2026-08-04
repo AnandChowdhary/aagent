@@ -6,8 +6,9 @@ Run any CLI coding agent with a single command.
 build implements the complete wrapper grammar, prompt/stdin resolution,
 working-directory validation, `--help`, `--version`, the static provider
 registry, and side-effect-free executable discovery. Provider process execution
-is the next phase, so a valid prompt currently exits with status `69` instead of
-starting a locally installed agent.
+now has a shared launch-plan contract and safe Bash/PowerShell execution core.
+Provider-specific command construction is the next phase, so a valid prompt
+still exits with status `69` instead of starting a locally installed agent.
 
 ## Specification
 
@@ -60,13 +61,17 @@ Run the PowerShell smoke tests:
 pwsh ./tests/test_aagent.ps1
 ```
 
-GitHub Actions runs the Bash suite on Linux, macOS, and Windows, and the PowerShell suite on Windows.
+GitHub Actions runs the Bash suite on Linux, macOS, and Windows, and the
+PowerShell suite on Windows. Both entrypoints include the process-launch
+contract tests.
 
 The test entrypoints create an isolated home, configuration directory, and
 controlled `PATH`. Tier 1 provider behavior is simulated by credential-free
 fake executables documented in
 [tests/helpers/README.md](tests/helpers/README.md); normal tests never invoke a
-locally installed coding agent.
+locally installed coding agent. Launch tests verify argument boundaries, exact
+stdin, child-only cwd and environment changes, stdout/stderr separation, native
+statuses, interruption behavior where CI supports it, and redacted dry-runs.
 
 ## License
 

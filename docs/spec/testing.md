@@ -20,6 +20,13 @@ Required cases:
 - non-zero exit preservation; and
 - interrupt propagation where the CI platform permits it.
 
+The Bash contract suite sends a real termination signal, checks the
+conventional signal-derived status, and proves the fake provider is reaped.
+The Windows PowerShell CI environment cannot synthesize a portable console
+Ctrl-C; its contract suite therefore verifies preservation of interrupt-like
+native statuses while the launcher leaves the provider attached to the same
+console for normal Ctrl-C delivery.
+
 ## Selection tests
 
 - no providers installed;
