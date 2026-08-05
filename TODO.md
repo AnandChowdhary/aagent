@@ -747,10 +747,13 @@ Deliverable: installable, documented MVP with passing cross-platform CI
   Evidence: `scripts/check-provider-compatibility.sh`,
   `tests/test_compatibility.sh`, and `.github/workflows/compatibility.yml`.
 
-- [ ] **P11-08 Rewrite README for the functional MVP.**
+- [x] **P11-08 Rewrite README for the functional MVP.**
   Document installation, examples, supported providers, selection/cost policy,
   explicit provider choice, native args, auth policy, config, diagnostics,
   safety boundary, platform support, and known provider-specific side effects.
+
+  Evidence: `README.md` documents every required user-facing surface and the
+  provider-specific behavior retained by the wrapper.
 
 - [ ] **P11-09 Synchronize help, README, and specification.**
   Add a test for stable option/subcommand coverage and ensure examples are valid
