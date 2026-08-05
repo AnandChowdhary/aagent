@@ -25,7 +25,12 @@ release_dir="$test_dir/release assets"
 bash "$package_script" "$release_dir" v0.1.0 >/dev/null
 
 expected_assets=(SHA256SUMS aagent.ps1 aagent.sh install.ps1 install.sh)
-actual_assets="$(find "$release_dir" -maxdepth 1 -type f -exec basename {} \; | sort | tr '\n' ' ')"
+asset_names=""
+for path in "$release_dir"/*; do
+    [[ -f "$path" ]] || fail "release package contains a non-file asset"
+    asset_names+="${path##*/}"$'\n'
+done
+actual_assets="$(printf '%s' "$asset_names" | sort | tr '\n' ' ')"
 [[ "$actual_assets" == "${expected_assets[*]} " ]] || fail "release asset set differs"
 cmp "$project_root/SHA256SUMS" "$release_dir/SHA256SUMS" || fail "packaged checksum manifest differs"
 for asset in aagent.sh aagent.ps1 install.sh install.ps1; do
