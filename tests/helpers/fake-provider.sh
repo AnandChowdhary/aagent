@@ -56,7 +56,7 @@ record_file="$AAGENT_FAKE_RECORD_DIR/$provider.$kind.$count.record"
 stdin_file="$AAGENT_FAKE_RECORD_DIR/.stdin.$$.tmp"
 delay_pid=""
 
-# shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap.
+# shellcheck disable=SC2317,SC2329 # Invoked indirectly by the EXIT trap.
 cleanup() {
     rm -f "$stdin_file"
     if [[ -n "$delay_pid" ]] && kill -0 "$delay_pid" 2>/dev/null; then

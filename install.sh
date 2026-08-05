@@ -90,7 +90,7 @@ aagent_install() (
     staged_runner="$(mktemp "${install_dir}/.aagent.XXXXXX")"
     staged_checksums="$(mktemp "${install_dir}/.aagent-checksums.XXXXXX")"
 
-    # shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap.
+    # shellcheck disable=SC2317,SC2329 # Invoked indirectly by the EXIT trap.
     aagent_installer_cleanup() {
         rm -f -- "$staged_runner" "$staged_checksums"
     }

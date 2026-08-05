@@ -114,6 +114,15 @@ examples through redacted dry-runs; compare Bash and PowerShell help wherever
 both runners are present; and reject broken local Markdown links. The examples
 use fake providers and prove that no provider run starts.
 
+## Local release gate
+
+`bash scripts/release-gate.sh` is the reproducible local release command. From
+a clean worktree it runs Bash and PowerShell syntax checks, ShellCheck when
+available, both aggregate suites, documentation/link contracts, repository
+diff checks, and clean-room Bash and PowerShell installer smoke tests. The
+normal GitHub Actions workflow runs the same command in a fresh Linux checkout;
+the platform matrix remains the authority for macOS and Windows parity.
+
 ## MVP acceptance criteria
 
 The implementation is complete only when:
