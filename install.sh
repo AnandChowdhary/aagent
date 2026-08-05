@@ -51,6 +51,21 @@ aagent_installer_download() {
     curl -fsSL "$url" -o "$destination"
 }
 
+aagent_installer_normalize_install_dir() {
+    local path="$1"
+
+    if command -v cygpath >/dev/null 2>&1; then
+        case "$path" in
+            [[:alpha:]]:[\\/]*)
+                cygpath -u "$path"
+                return
+                ;;
+        esac
+    fi
+
+    printf '%s\n' "$path"
+}
+
 aagent_installer_verify_runner() {
     local path="$1"
     local expected_version="${AAGENT_EXPECTED_VERSION-}"
@@ -84,6 +99,7 @@ aagent_install() (
         : "${HOME:?HOME is required unless INSTALL_DIR is set}"
         install_dir="${HOME}/.local/bin"
     fi
+    install_dir="$(aagent_installer_normalize_install_dir "$install_dir")"
 
     printf 'Installing aagent...\n'
     mkdir -p "$install_dir"
