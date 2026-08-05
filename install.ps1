@@ -62,7 +62,7 @@ function Invoke-AagentInstall {
     }
     $targetPath = Join-Path $installDir "aagent.ps1"
     $launcherPath = Join-Path $installDir "aagent.cmd"
-    $stagedRunner = Join-Path $installDir (".aagent-" + [guid]::NewGuid().ToString("N") + ".tmp")
+    $stagedRunner = Join-Path $installDir (".aagent-" + [guid]::NewGuid().ToString("N") + ".tmp.ps1")
     $stagedChecksums = Join-Path $installDir (".aagent-checksums-" + [guid]::NewGuid().ToString("N") + ".tmp")
     $stagedLauncher = Join-Path $installDir (".aagent-launcher-" + [guid]::NewGuid().ToString("N") + ".tmp")
 

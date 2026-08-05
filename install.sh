@@ -66,7 +66,7 @@ aagent_installer_verify_runner() {
     fi
 }
 
-aagent_install() {
+aagent_install() (
     local install_dir="${INSTALL_DIR-}"
     local download_base_url="${AAGENT_DOWNLOAD_BASE_URL:-https://raw.githubusercontent.com/AnandChowdhary/aagent/main}"
     local source="${AAGENT_SOURCE:-${download_base_url}/aagent.sh}"
@@ -87,12 +87,11 @@ aagent_install() {
     staged_runner="$(mktemp "${install_dir}/.aagent.XXXXXX")"
     staged_checksums="$(mktemp "${install_dir}/.aagent-checksums.XXXXXX")"
 
-    # shellcheck disable=SC2329 # Invoked indirectly by the RETURN/EXIT trap.
+    # shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap.
     aagent_installer_cleanup() {
-        trap - RETURN EXIT
         rm -f -- "$staged_runner" "$staged_checksums"
     }
-    trap aagent_installer_cleanup RETURN EXIT
+    trap aagent_installer_cleanup EXIT
 
     if [[ -f "$source" ]]; then
         source_is_local=1
@@ -121,7 +120,7 @@ aagent_install() {
         printf 'Add %s to your PATH to run aagent from anywhere.\n' "$install_dir"
     fi
     printf "Run 'aagent --help' to get started.\n"
-}
+)
 
 if [[ -z "${BASH_SOURCE[0]:-}" || "${BASH_SOURCE[0]}" == "$0" ]]; then
     aagent_install

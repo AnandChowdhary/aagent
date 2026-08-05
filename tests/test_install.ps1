@@ -115,7 +115,7 @@ try {
     }
     if (-not $failed) { throw "PowerShell version mismatch unexpectedly installed" }
 
-    $staged = @(Get-ChildItem -LiteralPath $installDir -File | Where-Object Name -Like ".aagent-*.tmp")
+    $staged = @(Get-ChildItem -LiteralPath $installDir -File | Where-Object Name -Like ".aagent-*.tmp*")
     Assert-Equal $staged.Count 0 "PowerShell installer left staging files"
 } finally {
     foreach ($name in $environmentNames) {
