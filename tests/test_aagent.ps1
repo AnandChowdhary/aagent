@@ -15,6 +15,7 @@ $authPolicyTest = Join-Path $projectRoot "tests/test_auth_policy.ps1"
 $introspectionTest = Join-Path $projectRoot "tests/test_introspection.ps1"
 $securityTest = Join-Path $projectRoot "tests/test_security.ps1"
 $installTest = Join-Path $projectRoot "tests/test_install.ps1"
+$docsTest = Join-Path $projectRoot "tests/test_docs.ps1"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 function Assert-Equal($Actual, $Expected, [string] $Message) {
@@ -110,6 +111,7 @@ Assert-PowerShellSyntax $authPolicyTest
 Assert-PowerShellSyntax $introspectionTest
 Assert-PowerShellSyntax $securityTest
 Assert-PowerShellSyntax $installTest
+Assert-PowerShellSyntax $docsTest
 Assert-PowerShellSyntax $PSCommandPath
 
 $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-tests-" + [guid]::NewGuid().ToString("N"))
@@ -314,6 +316,7 @@ try {
     & $introspectionTest
     & $securityTest
     & $installTest
+    & $docsTest
 } finally {
     foreach ($name in $environmentNames) {
         $originalValue = $originalEnvironment[$name]
