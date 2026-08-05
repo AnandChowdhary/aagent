@@ -711,16 +711,16 @@ Deliverable: safe visibility into discovery, classification, and launch plans
 Dependencies: Phases 1 through 10
 Deliverable: installable, documented MVP with passing cross-platform CI
 
-- [ ] **P11-01 Preserve direct executability.**
+- [x] **P11-01 Preserve direct executability.**
   `aagent.sh` has the correct shebang and executable bit; `aagent.ps1` runs with
   `pwsh -File`; both work from paths containing spaces.
 
-- [ ] **P11-02 Update the Bash installer.**
+- [x] **P11-02 Update the Bash installer.**
   Install the current runner atomically to the documented destination, preserve
   executable permissions, handle an existing install, and verify installed
   help/version without invoking a provider.
 
-- [ ] **P11-03 Update the PowerShell installer.**
+- [x] **P11-03 Update the PowerShell installer.**
   Install the current script and launcher behavior to the documented Windows
   destination, handle an existing install, and verify installed help/version.
 
@@ -733,7 +733,7 @@ Deliverable: installable, documented MVP with passing cross-platform CI
   PowerShell tests on Windows; keep fail-fast disabled so parity failures are
   visible together.
 
-- [ ] **P11-06 Add platform-specific signal tests.**
+- [x] **P11-06 Add platform-specific signal tests.**
   Run where supported and explicitly document any Windows limitation rather
   than weakening the general status/cleanup contract.
 

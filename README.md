@@ -61,15 +61,23 @@ On macOS and Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AnandChowdhary/aagent/main/install.sh | bash
-aagent --help
+"$HOME/.local/bin/aagent" --help
 ```
+
+The installer downloads the runner and `SHA256SUMS` independently, verifies the
+runner before executing it, smoke-tests `--help` and `--version`, and then
+replaces any existing install with a same-directory move. A failed download,
+checksum, or smoke test leaves the current installation untouched.
 
 On Windows with PowerShell 7:
 
 ```powershell
 irm https://raw.githubusercontent.com/AnandChowdhary/aagent/main/install.ps1 | iex
-pwsh ~/.local/bin/aagent.ps1 --help
+& "$HOME/.local/bin/aagent.cmd" --help
 ```
+
+The PowerShell installer writes both `aagent.ps1` and an `aagent.cmd` launcher
+to `%USERPROFILE%\.local\bin`. Add that directory to `PATH` when prompted.
 
 ## Manual usage
 
@@ -102,9 +110,10 @@ pwsh ./tests/test_aagent.ps1
 ```
 
 GitHub Actions runs the Bash suite on Linux, macOS, and Windows, and the
-PowerShell suite on Windows. Both entrypoints include configuration, passive
-probe, deterministic selection, child authentication policy, process-launch,
-introspection, security-audit, and Tier 1 adapter contract tests.
+PowerShell suite on Windows. Both entrypoints include atomic installation,
+strict configuration, passive probes, deterministic selection, child
+authentication policy, process launch, introspection, security audits, and
+Tier 1 adapter contract tests.
 
 The test entrypoints create an isolated home, configuration directory, and
 controlled `PATH`. Tier 1 provider behavior is simulated by credential-free

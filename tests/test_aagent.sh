@@ -16,6 +16,7 @@ selection_test="$project_root/tests/test_selection.sh"
 auth_policy_test="$project_root/tests/test_auth_policy.sh"
 introspection_test="$project_root/tests/test_introspection.sh"
 security_test="$project_root/tests/test_security.sh"
+install_test="$project_root/tests/test_install.sh"
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -61,6 +62,7 @@ bash -n \
     "$auth_policy_test" \
     "$introspection_test" \
     "$security_test" \
+    "$install_test" \
     "${BASH_SOURCE[0]}"
 
 test_dir="$(mktemp -d)"
@@ -231,5 +233,6 @@ bash "$selection_test"
 bash "$auth_policy_test"
 bash "$introspection_test"
 bash "$security_test"
+bash "$install_test"
 
 printf 'All Bash tests passed.\n'

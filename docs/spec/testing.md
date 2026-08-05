@@ -27,6 +27,15 @@ Ctrl-C; its contract suite therefore verifies preservation of interrupt-like
 native statuses while the launcher leaves the provider attached to the same
 console for normal Ctrl-C delivery.
 
+## Installation tests
+
+Both installers are exercised from paths and into destinations containing
+spaces. Local-source and mocked remote-source cases verify existing-install
+replacement, checksum enforcement, expected-version enforcement, installed
+help/version behavior, launcher creation, executable permissions, staging-file
+cleanup, and preservation of the previous runner after every pre-install
+failure.
+
 ## Selection tests
 
 - no providers installed;
