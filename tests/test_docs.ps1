@@ -9,6 +9,9 @@ $acceptancePath = Join-Path $projectRoot "docs/acceptance-evidence.md"
 $specificationPath = Join-Path $projectRoot "SPEC.md"
 $ledgerPath = Join-Path $projectRoot "TODO.md"
 $copilotResearchPath = Join-Path $projectRoot "docs/research/copilot-cli-2026-08-05.md"
+$adapterSpecPath = Join-Path $projectRoot "docs/spec/adapters.md"
+$probeSpecPath = Join-Path $projectRoot "docs/spec/probes.md"
+$securitySpecPath = Join-Path $projectRoot "docs/spec/security.md"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 function Assert-DocsContains([string] $Value, [string] $Expected, [string] $Message) {
@@ -22,6 +25,9 @@ $acceptance = [IO.File]::ReadAllText($acceptancePath, $utf8)
 $specification = [IO.File]::ReadAllText($specificationPath, $utf8)
 $ledger = [IO.File]::ReadAllText($ledgerPath, $utf8)
 $copilotResearch = [IO.File]::ReadAllText($copilotResearchPath, $utf8)
+$adapterSpec = [IO.File]::ReadAllText($adapterSpecPath, $utf8)
+$probeSpec = [IO.File]::ReadAllText($probeSpecPath, $utf8)
+$securitySpec = [IO.File]::ReadAllText($securitySpecPath, $utf8)
 
 $releaseEvidenceContract = @(
     "Status: Complete for aagent 0.1.1",
@@ -54,6 +60,22 @@ $copilotResearchContract = @(
 foreach ($evidence in $copilotResearchContract) {
     Assert-DocsContains $copilotResearch $evidence "Copilot revalidation omitted $evidence"
 }
+
+$copilotImplementationContract = @(
+    'GitHub Copilot CLI (`copilot`)',
+    'copilot --prompt PROMPT --silent --no-ask-user',
+    'COPILOT_PROVIDER_BASE_URL',
+    'Copilot BYOK',
+    'GitHub token presence'
+)
+foreach ($evidence in $copilotImplementationContract) {
+    Assert-DocsContains ($readme + $adapterSpec + $probeSpec) $evidence `
+        "Copilot implementation documentation omitted $evidence"
+}
+Assert-DocsContains $securitySpec '`--allow-all-paths`' `
+    "Security documentation omitted Copilot permission escalation flags"
+Assert-DocsContains $ledger '- [x] **P12A-02 Implement `copilot`.**' `
+    "Implementation ledger does not mark Copilot complete"
 
 $helpContract = @(
     "aagent [OPTIONS] [PROMPT...]",

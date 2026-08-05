@@ -86,6 +86,7 @@ model_for() {
         claude) printf 'claude-model\n' ;;
         codex) printf 'codex-model\n' ;;
         opencode) printf 'provider/model\n' ;;
+        copilot) printf 'copilot-model\n' ;;
         gemini) printf 'gemini-model\n' ;;
         amp) printf '\n' ;;
     esac
@@ -96,6 +97,7 @@ display_name_for() {
         claude) printf 'Claude Code\n' ;;
         codex) printf 'Codex CLI\n' ;;
         opencode) printf 'OpenCode\n' ;;
+        copilot) printf 'GitHub Copilot CLI\n' ;;
         amp) printf 'Amp\n' ;;
         gemini) printf 'Gemini CLI\n' ;;
     esac
@@ -115,6 +117,9 @@ prompt_arguments_for() {
             ;;
         opencode)
             EXPECTED_ARGUMENTS=("run" "--model" "$model" "--native-flag" "-leading-value" "$prompt")
+            ;;
+        copilot)
+            EXPECTED_ARGUMENTS=("--prompt" "$prompt" "--silent" "--no-ask-user" "--model" "$model" "--native-flag" "-leading-value")
             ;;
         amp)
             EXPECTED_ARGUMENTS=("--execute" "$prompt" "--native-flag" "-leading-value")
@@ -136,6 +141,10 @@ stdin_arguments_for() {
             EXPECTED_ARGUMENTS=("run" "$stdin_data")
             EXPECTED_STDIN=""
             ;;
+        copilot)
+            EXPECTED_ARGUMENTS=("--prompt" "$stdin_data" "--silent" "--no-ask-user")
+            EXPECTED_STDIN=""
+            ;;
         amp) EXPECTED_ARGUMENTS=("--execute") ;;
         gemini) EXPECTED_ARGUMENTS=() ;;
     esac
@@ -151,6 +160,10 @@ both_arguments_for() {
         codex) EXPECTED_ARGUMENTS=("exec" "$prompt") ;;
         opencode)
             EXPECTED_ARGUMENTS=("run" "$prompt"$'\n\n--- stdin context ---\n'"$stdin_data")
+            EXPECTED_STDIN=""
+            ;;
+        copilot)
+            EXPECTED_ARGUMENTS=("--prompt" "$prompt"$'\n\n--- stdin context ---\n'"$stdin_data" "--silent" "--no-ask-user")
             EXPECTED_STDIN=""
             ;;
         amp) EXPECTED_ARGUMENTS=("--execute" "$prompt") ;;
@@ -177,7 +190,8 @@ expected_work_dir="$(cd "$work_dir" && pwd -P)"
 
 adapter_environment_names=(
     AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
-    AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_AMP_BIN AAGENT_GEMINI_BIN
+    AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_COPILOT_BIN
+    AAGENT_AMP_BIN AAGENT_GEMINI_BIN
     AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
     AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
     AAGENT_FAKE_CLAUDE_STDOUT AAGENT_FAKE_CLAUDE_STDERR AAGENT_FAKE_CLAUDE_STATUS
@@ -186,13 +200,16 @@ adapter_environment_names=(
     AAGENT_FAKE_CODEX_LOGIN_STDERR AAGENT_FAKE_CODEX_LOGIN_STATUS
     ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
     CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
-    CODEX_API_KEY OPENAI_API_KEY
+    CODEX_API_KEY OPENAI_API_KEY COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE
+    COPILOT_PROVIDER_API_KEY COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS
+    COPILOT_MODEL COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL
+    COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
 )
 for environment_name in "${adapter_environment_names[@]}"; do
     unset "$environment_name" 2>/dev/null || true
 done
 
-providers=(claude codex opencode amp gemini)
+providers=(claude codex opencode copilot amp gemini)
 for provider in "${providers[@]}"; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"

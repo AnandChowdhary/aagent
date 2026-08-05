@@ -157,7 +157,8 @@ function Invoke-SelectionProcess([string[]] $Arguments) {
 $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-selection-" + [guid]::NewGuid().ToString("N"))
 $selectionEnvironmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
-    "AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN",
+    "AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN",
+    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN",
     "AAGENT_FAKE_RECORD_DIR", "AAGENT_FAKE_INVOCATION_KIND", "AAGENT_FAKE_PROVIDER",
     "AAGENT_FAKE_ENV_PRESENCE", "AAGENT_FAKE_ENV_CAPTURE", "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR",
     "AAGENT_FAKE_PROBE_STATUS", "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES",
@@ -172,7 +173,11 @@ $selectionEnvironmentNames = @(
     "ANTHROPIC_FOUNDRY_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "ANTHROPIC_CUSTOM_HEADERS",
     "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
-    "CODEX_API_KEY", "OPENAI_API_KEY", "AMP_API_KEY"
+    "CODEX_API_KEY", "OPENAI_API_KEY", "AMP_API_KEY",
+    "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_API_KEY",
+    "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL",
+    "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
+    "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"
 )
 $originalEnvironment = @{}
 foreach ($name in $selectionEnvironmentNames) {
@@ -192,7 +197,7 @@ try {
     )) {
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
-    foreach ($provider in @("claude", "codex", "opencode", "amp", "gemini")) {
+    foreach ($provider in @("claude", "codex", "opencode", "copilot", "amp", "gemini")) {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }
     $env:HOME = $homeDir
@@ -214,6 +219,7 @@ try {
         $env:AAGENT_CLAUDE_BIN = Join-Path $missingDir "claude"
         $env:AAGENT_CODEX_BIN = Join-Path $missingDir "codex"
         $env:AAGENT_OPENCODE_BIN = Join-Path $missingDir "opencode"
+        $env:AAGENT_COPILOT_BIN = Join-Path $missingDir "copilot"
         $env:AAGENT_GEMINI_BIN = Join-Path $missingDir "gemini"
         $env:AAGENT_AMP_BIN = Join-Path $missingDir "amp"
         $env:AAGENT_FAKE_RUN_STDOUT = "provider-output"
@@ -247,6 +253,63 @@ try {
     Assert-SelectionContains $processResult.Stderr `
         "using codex (included_confirmed, ChatGPT Pro; higher funding class (included_confirmed))" `
         "Codex selection notice differs"
+
+    Clear-SelectionCase
+    $env:AAGENT_COPILOT_BIN = Join-Path $fakeBin "copilot.ps1"
+    $env:AAGENT_CODEX_BIN = Join-Path $fakeBin "codex.ps1"
+    $env:COPILOT_GITHUB_TOKEN = "seeded-secret-token"
+    $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}}'
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Copilot included-account scenario failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "copilot.run.*.record")) {
+        throw "GitHub-account Copilot did not beat API-only Codex"
+    }
+    Assert-SelectionContains $processResult.Stderr `
+        "using copilot (included_account, GitHub account; higher funding class (included_account))" `
+        "Copilot selection notice differs"
+
+    Clear-SelectionCase
+    $env:AAGENT_COPILOT_BIN = Join-Path $fakeBin "copilot.ps1"
+    $env:AAGENT_CODEX_BIN = Join-Path $fakeBin "codex.ps1"
+    $env:COPILOT_GITHUB_TOKEN = "seeded-secret-token"
+    $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro"},"requiresOpenaiAuth":true}}'
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Codex versus Copilot scenario failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "codex.run.*.record")) {
+        throw "ChatGPT Pro did not beat GitHub-account Copilot"
+    }
+
+    Clear-SelectionCase
+    $env:AAGENT_COPILOT_BIN = Join-Path $fakeBin "copilot.ps1"
+    $env:COPILOT_PROVIDER_BASE_URL = "https://models.example.test/v1"
+    $env:COPILOT_PROVIDER_API_KEY = "seeded-secret-token"
+    $env:COPILOT_GITHUB_TOKEN = "seeded-secret-token"
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Copilot BYOK precedence scenario failed"
+    Assert-SelectionContains $processResult.Stderr "using copilot (payg_byok, Copilot BYOK" `
+        "Copilot BYOK did not take precedence over GitHub token evidence"
+
+    Clear-SelectionCase
+    $env:AAGENT_COPILOT_BIN = Join-Path $fakeBin "copilot.ps1"
+    $env:COPILOT_PROVIDER_BASE_URL = "http://localhost:11434/v1"
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status $AagentExitUnavailable "Copilot local route bypassed allow-local"
+    if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) {
+        throw "Blocked Copilot local route received the prompt"
+    }
+    $processResult = Invoke-SelectionProcess @("--allow-local", "true", "say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Allowed Copilot local route failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "copilot.run.*.record")) {
+        throw "Allowed Copilot local route did not run"
+    }
+
+    Clear-SelectionCase
+    $env:AAGENT_COPILOT_BIN = Join-Path $fakeBin "copilot.ps1"
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Copilot unknown last-resort scenario failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "copilot.run.*.record")) {
+        throw "Copilot unknown evidence was not retained as a last resort"
+    }
 
     Clear-SelectionCase
     $env:AAGENT_CLAUDE_BIN = Join-Path $fakeBin "claude.ps1"

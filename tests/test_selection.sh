@@ -129,7 +129,8 @@ test_dir="$(mktemp -d)"
 original_path="$PATH"
 selection_environment_names=(
     HOME XDG_CONFIG_HOME AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
-    AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_GEMINI_BIN AAGENT_AMP_BIN
+    AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_COPILOT_BIN
+    AAGENT_GEMINI_BIN AAGENT_AMP_BIN
     AAGENT_FAKE_RECORD_DIR AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROVIDER
     AAGENT_FAKE_ENV_PRESENCE AAGENT_FAKE_ENV_CAPTURE AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
     AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
@@ -144,7 +145,11 @@ selection_environment_names=(
     ANTHROPIC_FOUNDRY_API_KEY AWS_BEARER_TOKEN_BEDROCK ANTHROPIC_CUSTOM_HEADERS
     CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_MANTLE CLAUDE_CODE_USE_VERTEX
     CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_USE_ANTHROPIC_AWS
-    CODEX_API_KEY OPENAI_API_KEY AMP_API_KEY
+    CODEX_API_KEY OPENAI_API_KEY AMP_API_KEY \
+    COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE COPILOT_PROVIDER_API_KEY \
+    COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS COPILOT_MODEL \
+    COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL \
+    COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
 )
 
 cleanup_selection_test() {
@@ -158,7 +163,7 @@ fake_bin="$test_dir/bin"
 record_dir="$test_dir/records"
 missing_dir="$test_dir/missing"
 mkdir -p "$home_dir/.config/aagent" "$home_dir/.gemini" "$fake_bin" "$record_dir"
-for provider in claude codex opencode amp gemini; do
+for provider in claude codex opencode copilot amp gemini; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"
 done
@@ -183,6 +188,7 @@ clear_selection_case() {
     export AAGENT_CLAUDE_BIN="$missing_dir/claude"
     export AAGENT_CODEX_BIN="$missing_dir/codex"
     export AAGENT_OPENCODE_BIN="$missing_dir/opencode"
+    export AAGENT_COPILOT_BIN="$missing_dir/copilot"
     export AAGENT_GEMINI_BIN="$missing_dir/gemini"
     export AAGENT_AMP_BIN="$missing_dir/amp"
     export AAGENT_FAKE_RUN_STDOUT="provider-output"
@@ -223,6 +229,58 @@ find "$record_dir" -name 'codex.run.*.record' -print -quit | grep -q . || \
 assert_contains "$(<"$test_dir/codex-included.stderr")" \
     "using codex (included_confirmed, ChatGPT Pro; higher funding class (included_confirmed))" \
     "Codex selection notice differs"
+
+clear_selection_case
+export AAGENT_COPILOT_BIN="$fake_bin/copilot"
+export AAGENT_CODEX_BIN="$fake_bin/codex"
+export COPILOT_GITHUB_TOKEN='seeded-secret-token'
+export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}}'
+run_wrapper "$test_dir/copilot-included" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Copilot included-account scenario failed"
+find "$record_dir" -name 'copilot.run.*.record' -print -quit | grep -q . || \
+    fail "GitHub-account Copilot did not beat API-only Codex"
+assert_contains "$(<"$test_dir/copilot-included.stderr")" \
+    "using copilot (included_account, GitHub account; higher funding class (included_account))" \
+    "Copilot selection notice differs"
+
+clear_selection_case
+export AAGENT_COPILOT_BIN="$fake_bin/copilot"
+export AAGENT_CODEX_BIN="$fake_bin/codex"
+export COPILOT_GITHUB_TOKEN='seeded-secret-token'
+export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro"},"requiresOpenaiAuth":true}}'
+run_wrapper "$test_dir/codex-beats-copilot" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Codex versus Copilot scenario failed"
+find "$record_dir" -name 'codex.run.*.record' -print -quit | grep -q . || \
+    fail "ChatGPT Pro did not beat GitHub-account Copilot"
+
+clear_selection_case
+export AAGENT_COPILOT_BIN="$fake_bin/copilot"
+export COPILOT_PROVIDER_BASE_URL='https://models.example.test/v1'
+export COPILOT_PROVIDER_API_KEY='seeded-secret-token'
+export COPILOT_GITHUB_TOKEN='seeded-secret-token'
+run_wrapper "$test_dir/copilot-byok-precedence" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Copilot BYOK precedence scenario failed"
+assert_contains "$(<"$test_dir/copilot-byok-precedence.stderr")" \
+    "using copilot (payg_byok, Copilot BYOK" \
+    "Copilot BYOK did not take precedence over GitHub token evidence"
+
+clear_selection_case
+export AAGENT_COPILOT_BIN="$fake_bin/copilot"
+export COPILOT_PROVIDER_BASE_URL='http://localhost:11434/v1'
+run_wrapper "$test_dir/copilot-local-blocked" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" "$AAGENT_EXIT_UNAVAILABLE" "Copilot local route bypassed allow-local"
+[[ ! -e "$record_dir/run.count" ]] || fail "blocked Copilot local route received the prompt"
+run_wrapper "$test_dir/copilot-local-allowed" --allow-local true "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "allowed Copilot local route failed"
+find "$record_dir" -name 'copilot.run.*.record' -print -quit | grep -q . || \
+    fail "allowed Copilot local route did not run"
+
+clear_selection_case
+export AAGENT_COPILOT_BIN="$fake_bin/copilot"
+run_wrapper "$test_dir/copilot-unknown" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Copilot unknown last-resort scenario failed"
+find "$record_dir" -name 'copilot.run.*.record' -print -quit | grep -q . || \
+    fail "Copilot unknown evidence was not retained as a last resort"
 
 clear_selection_case
 export AAGENT_CLAUDE_BIN="$fake_bin/claude"

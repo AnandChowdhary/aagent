@@ -14,7 +14,8 @@ policies do not provide.
 The wrapper must:
 
 - never append `--yolo`, `--dangerously-skip-permissions`,
-  `--skip-permissions-unsafe`, `--allow-all-tools`, `--auto`, or equivalent;
+  `--skip-permissions-unsafe`, `--allow-all-tools`, `--allow-all-paths`,
+  `--allow-all-urls`, `--allow-all`, `--auto`, or equivalent;
 - never answer an approval prompt on the user's behalf;
 - display known provider safety notes in `aagent doctor`;
 - treat native options after `--` as an explicit user choice;
@@ -40,8 +41,12 @@ The wrapper may call only the passive provider interfaces enumerated in
 - emit account email, organization, token fingerprint, or other account PII.
 
 Environment variables are inspected by name and presence only during
-classification. The one MVP value-handling exception is the documented Codex
-fallback: after Codex has been selected as `payg_byok`, a present
+classification. A narrow Copilot exception reads
+`COPILOT_PROVIDER_BASE_URL` only long enough to validate the HTTP(S) authority
+and classify an exact loopback host; the raw URL is discarded and never
+emitted, and embedded user information is rejected. Credential and header
+values remain unread. The other value-handling exception is the documented
+Codex fallback: after Codex has been selected as `payg_byok`, a present
 `OPENAI_API_KEY` may be copied opaquely to child `CODEX_API_KEY`. The value must
 not be compared, transformed, retained, or emitted. Every child-only
 authentication adjustment reports variable names only and must leave the

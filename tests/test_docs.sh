@@ -12,6 +12,9 @@ acceptance_evidence="$project_root/docs/acceptance-evidence.md"
 specification="$project_root/SPEC.md"
 ledger="$project_root/TODO.md"
 copilot_research="$project_root/docs/research/copilot-cli-2026-08-05.md"
+adapter_spec="$project_root/docs/spec/adapters.md"
+probe_spec="$project_root/docs/spec/probes.md"
+security_spec="$project_root/docs/spec/security.md"
 test_dir="$(mktemp -d)"
 
 cleanup() {
@@ -38,6 +41,9 @@ acceptance_text="$(<"$acceptance_evidence")"
 specification_text="$(<"$specification")"
 ledger_text="$(<"$ledger")"
 copilot_research_text="$(<"$copilot_research")"
+adapter_spec_text="$(<"$adapter_spec")"
+probe_spec_text="$(<"$probe_spec")"
+security_spec_text="$(<"$security_spec")"
 
 release_evidence_contract=(
     'Status: Complete for aagent 0.1.1'
@@ -70,6 +76,22 @@ copilot_research_contract=(
 for evidence in "${copilot_research_contract[@]}"; do
     assert_contains "$copilot_research_text" "$evidence" "Copilot revalidation omitted $evidence"
 done
+
+copilot_implementation_contract=(
+    "GitHub Copilot CLI (\`copilot\`)"
+    'copilot --prompt PROMPT --silent --no-ask-user'
+    'COPILOT_PROVIDER_BASE_URL'
+    'Copilot BYOK'
+    'GitHub token presence'
+)
+for evidence in "${copilot_implementation_contract[@]}"; do
+    assert_contains "$readme_text$adapter_spec_text$probe_spec_text" "$evidence" \
+        "Copilot implementation documentation omitted $evidence"
+done
+assert_contains "$security_spec_text" "\`--allow-all-paths\`" \
+    "security documentation omitted Copilot permission escalation flags"
+assert_contains "$ledger_text" "- [x] **P12A-02 Implement \`copilot\`.**" \
+    "implementation ledger does not mark Copilot complete"
 
 help_contract=(
     'aagent [OPTIONS] [PROMPT...]'

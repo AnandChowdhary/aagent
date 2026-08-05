@@ -33,7 +33,8 @@ record_dir="$test_dir/records"
 missing_dir="$test_dir/missing"
 mkdir -p "$home_dir/.config/aagent" "$fake_bin" "$record_dir"
 cp "$fake_provider" "$fake_bin/codex"
-chmod +x "$fake_bin/codex"
+cp "$fake_provider" "$fake_bin/copilot"
+chmod +x "$fake_bin/codex" "$fake_bin/copilot"
 
 export HOME="$home_dir"
 export XDG_CONFIG_HOME="$home_dir/.config"
@@ -61,6 +62,9 @@ clear_case() {
     done
     unset AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
     unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL CODEX_API_KEY OPENAI_API_KEY AMP_API_KEY
+    unset COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE COPILOT_PROVIDER_API_KEY
+    unset COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS COPILOT_MODEL
+    unset COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
     unset AAGENT_FAKE_VERSION_DELAY AAGENT_FAKE_VERSION_BYTES
     export AAGENT_FAKE_VERSION_STDOUT='codex-cli 1.2.3'
     export AAGENT_FAKE_VERSION_STATUS=0
@@ -110,6 +114,23 @@ assert_contains "$doctor_output" "command: codex exec PROMPT" "doctor omitted ca
 assert_contains "$doctor_output" "safety:" "doctor omitted the safety note"
 assert_equals "$(<"$record_dir/probe.count")" 2 "scoped doctor should run one version and one status probe"
 [[ ! -e "$record_dir/run.count" ]] || fail "doctor launched a model"
+
+clear_case
+export AAGENT_COPILOT_BIN="$fake_bin/copilot"
+export COPILOT_GITHUB_TOKEN='seeded-secret-token'
+export AAGENT_FAKE_VERSION_STDOUT='GitHub Copilot CLI 1.0.78'
+run_wrapper "$test_dir/copilot-doctor" doctor copilot
+assert_equals "$AAGENT_TEST_STATUS" 0 "Copilot doctor failed"
+copilot_doctor_output="$(<"$test_dir/copilot-doctor.stdout")"
+assert_contains "$copilot_doctor_output" "provider: copilot" "Copilot doctor omitted provider"
+assert_contains "$copilot_doctor_output" "tier: tier2" "Copilot doctor omitted tier"
+assert_contains "$copilot_doctor_output" "version: GitHub Copilot CLI 1.0.78" "Copilot doctor rejected the safe version"
+assert_contains "$copilot_doctor_output" "authentication: ready" "Copilot doctor omitted authentication readiness"
+assert_contains "$copilot_doctor_output" "funding: included_account" "Copilot doctor omitted funding"
+assert_contains "$copilot_doctor_output" "command: copilot --prompt PROMPT --silent --no-ask-user" "Copilot doctor omitted command"
+assert_contains "$copilot_doctor_output" "no allow-all or yolo" "Copilot doctor omitted safety caveat"
+assert_equals "$(<"$record_dir/probe.count")" 1 "Copilot doctor ran more than its version probe"
+[[ ! -e "$record_dir/run.count" ]] || fail "Copilot doctor launched a model"
 
 clear_case
 run_wrapper "$test_dir/missing-doctor" doctor claude

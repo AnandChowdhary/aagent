@@ -1,4 +1,4 @@
-name: Tier 1 compatibility
+name: Provider compatibility
 
 on:
   schedule:
@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [claude, codex, opencode, amp, gemini]
+        provider: [claude, codex, opencode, copilot, amp, gemini]
 
     steps:
       - uses: actions/checkout@v7.0.0
@@ -37,6 +37,7 @@ jobs:
             claude) npm install --global @anthropic-ai/claude-code@latest ;;
             codex) npm install --global @openai/codex@latest ;;
             opencode) npm install --global opencode-ai@latest ;;
+            copilot) npm install --global @github/copilot@latest ;;
             gemini) npm install --global @google/gemini-cli@latest ;;
             amp)
               curl --fail --silent --show-error --location https://ampcode.com/install.sh | bash

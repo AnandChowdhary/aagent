@@ -126,7 +126,7 @@ tools, budgets, and output formats. Those options can grant substantial access;
 
 ## Smart selection and cost policy
 
-Without an explicit provider, `aagent` considers installed Tier 1 candidates
+Without an explicit provider, `aagent` considers installed supported adapters
 using this fixed tuple, from most to least important:
 
 ```text
@@ -174,19 +174,22 @@ changed files or spent tokens.
 
 ## Supported providers
 
-Tier 1 adapters are included in the first release:
+The first release's Tier 1 adapters and the implemented Tier 2 Copilot adapter
+are supported for real runs:
 
 | Provider | One-shot command | Per-run model | Passive local evidence | Important native behavior |
 | --- | --- | --- | --- | --- |
 | [Codex CLI](https://github.com/openai/codex) (`codex`) | `codex exec` | `--model` | local app-server account read, then `login status` fallback | Read-only sandbox by default; broader sandboxes are explicit. It may require a Git repository unless the user passes its native skip option. |
 | [Claude Code](https://code.claude.com/docs/en/getting-started) (`claude`) | `claude --print` | `--model` | `auth status --json` | Native permission modes and repository configuration remain active. `aagent` never adds `--bare` or a permission bypass. |
 | [OpenCode](https://opencode.ai/docs/) (`opencode`) | `opencode run` | `--model` | `auth list` plus non-secret selected-provider configuration | Most tools are allowed by native defaults; `aagent` never adds `--auto`. |
+| [GitHub Copilot CLI](https://github.com/github/copilot-cli) (`copilot`) | `copilot --prompt PROMPT --silent --no-ask-user` | `--model` | BYOK and GitHub token variable presence only | Piped context is combined into the prompt argument. Native approvals remain active; `aagent` never adds `--allow-all`, `--yolo`, or another permission grant. |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) | `gemini --prompt` | `--model` | documented `security.auth.selectedType` setting | Approval and sandbox modes remain native; `aagent` never adds `yolo`. |
 | [Amp](https://ampcode.com/manual) (`amp`) | `amp --execute` | not supported | account-token presence only | Amp documents that it uses tools without asking by default. Omitting an unsafe flag does not make it read-only. |
 
 Installations are discovered from `PATH`. Advanced users can override an exact
 executable with `AAGENT_CODEX_BIN`, `AAGENT_CLAUDE_BIN`,
-`AAGENT_OPENCODE_BIN`, `AAGENT_GEMINI_BIN`, or `AAGENT_AMP_BIN`.
+`AAGENT_OPENCODE_BIN`, `AAGENT_COPILOT_BIN`, `AAGENT_GEMINI_BIN`, or
+`AAGENT_AMP_BIN`.
 
 `aagent providers` also lists planned adapters, including Cursor's separate
 `agent` executable, as unsupported rather than confusing it with `aagent`.
@@ -208,6 +211,13 @@ process and reported by variable name only:
 The caller's environment is never modified. Use
 `--auth-policy native` or `AAGENT_AUTH_POLICY=native` when the provider should
 receive its environment exactly as-is.
+
+Copilot follows its native authentication precedence: a present
+`COPILOT_PROVIDER_BASE_URL` selects BYOK before GitHub authentication. The
+wrapper classifies only the endpoint authority and documented variable names;
+it never prints the URL, headers, or credentials. GitHub token presence is
+low-confidence account evidence because Copilot exposes no passive command for
+stored entitlement or plan tier.
 
 Passive probes are bounded, non-interactive, and fail safely to `unknown`.
 They do not read stored token files or keychains, invoke credential helpers,
@@ -288,8 +298,8 @@ through without remapping.
 
 GitHub Actions runs the complete Bash suite on Linux, macOS, and Windows Git
 Bash, plus the complete PowerShell suite on Windows. A separate weekly
-credential-free workflow installs the current Tier 1 CLIs and verifies only
-their documented help/version command surfaces.
+credential-free workflow installs every currently supported CLI, including
+Copilot, and verifies only documented help/version command surfaces.
 
 ## Safety boundary and limitations
 
@@ -305,7 +315,7 @@ The first release deliberately does not:
   token usage, or exact cost;
 - measure live quota or compare incompatible usage windows;
 - infer that an API-shaped account key is necessarily pay-as-you-go;
-- support the planned Tier 2 adapters for real runs; or
+- support the remaining planned adapters for real runs; or
 - fall back to another provider after launch.
 
 For the exact contracts and research boundary, start with [SPEC.md](SPEC.md).
@@ -320,7 +330,7 @@ bash ./scripts/release-gate.sh
 ```
 
 Tests use isolated homes, controlled `PATH` values, and credential-free fake
-providers. They cover parsing, discovery, process fidelity, all Tier 1 command
+providers. They cover parsing, discovery, process fidelity, all supported command
 shapes, passive probes, selection, child-only auth policy, introspection,
 security, installation, and compatibility drift without invoking locally
 installed coding agents or paid prompts.

@@ -54,7 +54,8 @@ if ($powerShellSource -match 'Invoke-Expression|\[ScriptBlock\]::Create|ScriptBl
 . $aagentScript
 foreach ($flag in @(
     "--yolo", "--dangerously-skip-permissions", "--skip-permissions-unsafe",
-    "--allow-all-tools", "--auto", "--force", "--permission-mode=bypassPermissions",
+    "--allow-all-tools", "--allow-all-paths", "--allow-all-urls", "--allow-all",
+    "--auto", "--force", "--permission-mode=bypassPermissions",
     "--approval-mode=yolo", "--sandbox=danger-full-access"
 )) {
     if (-not (Test-AagentUnsafePermissionFlag $flag)) { throw "permission denylist omitted $flag" }
@@ -70,11 +71,13 @@ $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-security-" + [guid]::Ne
 $environmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "PATH", "AAGENT_FAKE_RECORD_DIR",
     "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
-    "AAGENT_CODEX_BIN", "AAGENT_CLAUDE_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN",
+    "AAGENT_CODEX_BIN", "AAGENT_CLAUDE_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN",
+    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN",
     "AAGENT_FAKE_CODEX_APP_SERVER_STDOUT", "AAGENT_FAKE_CODEX_APP_SERVER_STATUS",
     "AAGENT_FAKE_RUN_STATUS", "AAGENT_FAKE_INVOCATION_KIND",
     "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR", "AAGENT_FAKE_PROBE_STATUS",
-    "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES", "CODEX_API_KEY", "OPENAI_API_KEY"
+    "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES", "CODEX_API_KEY", "OPENAI_API_KEY",
+    "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_HEADERS"
 )
 $originalEnvironment = @{}
 foreach ($name in $environmentNames) {
@@ -96,7 +99,9 @@ try {
         (Join-Path $homeDir ".claude"), (Join-Path $homeDir ".codex")
     )) { [IO.Directory]::CreateDirectory($directory) | Out-Null }
     $codexPath = Join-Path $fakeBin "codex.ps1"
+    $copilotPath = Join-Path $fakeBin "copilot.ps1"
     Copy-Item -LiteralPath $fakeProvider -Destination $codexPath
+    Copy-Item -LiteralPath $fakeProvider -Destination $copilotPath
     foreach ($credentialPath in @(
         (Join-Path $homeDir ".claude/.credentials.json"),
         (Join-Path $homeDir ".codex/auth.json")
@@ -116,6 +121,7 @@ try {
     $env:AAGENT_CODEX_BIN = $codexPath
     $env:AAGENT_CLAUDE_BIN = Join-Path $missingDir "claude"
     $env:AAGENT_OPENCODE_BIN = Join-Path $missingDir "opencode"
+    $env:AAGENT_COPILOT_BIN = $copilotPath
     $env:AAGENT_GEMINI_BIN = Join-Path $missingDir "gemini"
     $env:AAGENT_AMP_BIN = Join-Path $missingDir "amp"
     $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro","email":"person@example.com","organization":"Secret Org"},"requiresOpenaiAuth":true}}'
@@ -125,16 +131,19 @@ try {
         "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
         "AAGENT_FAKE_INVOCATION_KIND", "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR",
         "AAGENT_FAKE_PROBE_STATUS", "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES",
-        "CODEX_API_KEY", "OPENAI_API_KEY"
+        "CODEX_API_KEY", "OPENAI_API_KEY", "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_HEADERS"
     )) {
         Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
     }
+    $env:COPILOT_PROVIDER_BASE_URL = "https://seeded-secret-token@example.test/v1"
+    $env:COPILOT_PROVIDER_HEADERS = "Authorization=seeded-secret-token"
 
     $result = Invoke-Wrapper @("providers")
     Assert-Equal $result.Status 0 "credential audit providers command failed"
     if (@(Get-ChildItem -LiteralPath $markerDir -File).Count -gt 0) { throw "a credential helper was invoked" }
     Assert-NotContains $result.Stdout "person@example.com" "providers leaked an email"
     Assert-NotContains $result.Stdout "Secret Org" "providers leaked an organization"
+    Assert-NotContains $result.Stdout "seeded-secret-token" "providers leaked Copilot configuration"
     if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) { throw "credential audit launched a model" }
 
     Remove-Item -LiteralPath $recordDir -Recurse -Force
@@ -160,7 +169,10 @@ try {
     [IO.Directory]::CreateDirectory($recordDir) | Out-Null
     $result = Invoke-Wrapper @("--provider", "codex", "--dry-run", "say hello")
     Assert-Equal $result.Status 0 "safe dry-run failed"
-    foreach ($flag in @("--yolo", "--dangerously-skip-permissions", "--allow-all-tools", "--auto")) {
+    foreach ($flag in @(
+        "--yolo", "--dangerously-skip-permissions", "--allow-all-tools",
+        "--allow-all-paths", "--allow-all-urls", "--allow-all", "--auto"
+    )) {
         Assert-NotContains $result.Stdout $flag "wrapper injected $flag"
     }
     if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) { throw "safe dry-run launched a model" }

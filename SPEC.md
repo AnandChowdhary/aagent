@@ -69,8 +69,8 @@ The specification is split by responsibility:
 | [Research conclusions](docs/spec/research.md) | Evidence-based product boundary and interoperability conclusions |
 | [CLI contract](docs/spec/cli-contract.md) | Syntax, input, configuration, process, output, status, and signal behavior |
 | [Selection and authentication](docs/spec/selection.md) | Explicit precedence, passive probes, cost-aware ranking, and child auth environment |
-| [Passive probe contract](docs/spec/probes.md) | Redacted schema, supervisor limits, evidence confidence, and Tier 1 classifications |
-| [Adapter registry](docs/spec/adapters.md) | Adapter contract, Tier 1 requirements, Tier 2 inventory, and exclusions |
+| [Passive probe contract](docs/spec/probes.md) | Redacted schema, supervisor limits, evidence confidence, and supported-provider classifications |
+| [Adapter registry](docs/spec/adapters.md) | Adapter contract, runnable inventory, planned Tier 2 adapters, and exclusions |
 | [Permissions, privacy, and safety](docs/spec/security.md) | Permission boundary, secret handling, injection resistance, and future safety policy |
 | [Introspection](docs/spec/introspection.md) | `providers`, `doctor`, and `--dry-run` behavior |
 | [Testing and acceptance](docs/spec/testing.md) | Required fixtures, platform matrix, and MVP completion gate |

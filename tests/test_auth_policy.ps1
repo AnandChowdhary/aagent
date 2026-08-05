@@ -76,7 +76,7 @@ foreach ($provider in @("claude", "codex")) {
 $policyEnvironmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "AAGENT_AUTH_POLICY", "AAGENT_PROVIDER",
     "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
-    "AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN",
+    "AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN",
     "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN", "AAGENT_FAKE_RECORD_DIR",
     "AAGENT_FAKE_PROVIDER", "AAGENT_FAKE_INVOCATION_KIND",
     "AAGENT_FAKE_ENV_PRESENCE", "AAGENT_FAKE_ENV_CAPTURE",
@@ -129,6 +129,7 @@ try {
         $env:AAGENT_CLAUDE_BIN = Join-Path $missingDir "claude.ps1"
         $env:AAGENT_CODEX_BIN = Join-Path $missingDir "codex.ps1"
         $env:AAGENT_OPENCODE_BIN = Join-Path $missingDir "opencode.ps1"
+        $env:AAGENT_COPILOT_BIN = Join-Path $missingDir "copilot.ps1"
         $env:AAGENT_GEMINI_BIN = Join-Path $missingDir "gemini.ps1"
         $env:AAGENT_AMP_BIN = Join-Path $missingDir "amp.ps1"
         $env:AAGENT_FAKE_ENV_PRESENCE = @(

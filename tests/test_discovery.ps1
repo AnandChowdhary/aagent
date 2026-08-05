@@ -78,6 +78,12 @@ try {
     Assert-DiscoveryEqual $AagentPopularitySnapshot "2026-08-04" "Popularity snapshot differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "codex").Tier "tier1" "Codex tier differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "codex").Command "codex exec PROMPT" "Codex command differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "copilot").Tier "tier2" "Copilot tier differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "copilot").Command "copilot --prompt PROMPT --silent --no-ask-user" "Copilot command differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "copilot").Model "--model" "Copilot model capability differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "copilot").Structured "jsonl" "Copilot structured-output capability differs."
+    if (-not (Get-AagentAdapter "copilot").Safety.Contains("no allow-all or yolo")) { throw "Copilot safety metadata differs." }
+    Assert-DiscoveryEqual (Get-AagentAdapter "copilot").Probe "environment precedence only" "Copilot probe metadata differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "amp").Model "none" "Amp model capability differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "cursor").Executable "agent" "Cursor executable differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "cursor").Tier "planned" "Cursor tier differs."
@@ -92,7 +98,7 @@ try {
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "claude").Status "installed" "Claude PATH status differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "gemini").Status "missing" "A function was accepted as Gemini."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "amp").Status "missing" "Amp missing status differs."
-    Assert-DiscoveryEqual (Get-DiscoveryResult $results "copilot").Status "unsupported" "Installed planned Copilot status differs."
+    Assert-DiscoveryEqual (Get-DiscoveryResult $results "copilot").Status "installed" "Installed Copilot status differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "cursor").Status "unsupported" "Installed planned Cursor status differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "cursor").Path (Join-Path $fakeBin "agent.ps1") "Cursor path collides with aagent."
     if ($IsWindows) {
@@ -138,7 +144,7 @@ try {
         throw "Discovery executed an authentication probe."
     }
     $runnerSource = [IO.File]::ReadAllText($aagentScript)
-    if ($runnerSource -match "curl|wget|Invoke-WebRequest|https?://") {
+    if ($runnerSource -match "curl|wget|Invoke-WebRequest") {
         throw "Runtime runner contains a network popularity lookup."
     }
 } finally {

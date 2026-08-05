@@ -4,7 +4,7 @@ Status: Normative for the MVP
 
 ## Result schema
 
-Every installed Tier 1 candidate produces one redacted record with exactly
+Every installed supported candidate produces one redacted record with exactly
 these logical fields:
 
 | Field | Values |
@@ -57,6 +57,8 @@ Normal selection uses no network-dependent status endpoint:
   before end-of-file shuts the server down.
 - OpenCode runs its documented local `auth list` command but does not infer
   included funding from OAuth alone.
+- Copilot uses environment precedence only and runs no CLI probe. BYOK is
+  classified before GitHub token-variable presence.
 - Gemini reads only `~/.gemini/settings.json` and projects
   `security.auth.selectedType`; it does not run the CLI.
 - Amp does not run `usage` or another account command automatically.
@@ -80,12 +82,27 @@ Gemini `oauth-personal` is `included_account`, not a confirmed Google plan.
 are ready but funding-unknown. An Amp access token establishes only low-
 confidence account readiness, never the funding source.
 
+Copilot first checks for `COPILOT_PROVIDER_BASE_URL`. A syntactically valid
+loopback HTTP(S) authority without a credential is `local`; a valid endpoint
+plus `COPILOT_PROVIDER_API_KEY` or `COPILOT_PROVIDER_BEARER_TOKEN` is
+`payg_byok`; a remote endpoint without either is funding-unknown. An invalid
+endpoint, whitespace/control characters, or embedded user information degrades
+to `unknown`. When BYOK is absent, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or
+`GITHUB_TOKEN` presence is low-confidence `included_account`; stored OAuth and
+plan entitlement remain `unknown`.
+
 ## Credential boundary
 
 The wrapper never opens provider token files, auth databases, keychains, OS
 credential stores, or credential-helper output. It checks documented
 environment names for presence without copying or emitting their values. The
 official provider process remains the authority for its own cached auth.
+
+The narrowly scoped Copilot exception reads `COPILOT_PROVIDER_BASE_URL` only
+to validate its HTTP(S) authority and determine whether the exact host is
+loopback. The raw URL is immediately discarded and never emitted. Credential,
+header, model, and token variables are still inspected by name and presence
+only.
 
 Gemini's documented settings file is the only provider-owned file parsed by
 the wrapper. Unknown JSON fields are discarded and cannot enter the result.

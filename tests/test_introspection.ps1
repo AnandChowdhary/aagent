@@ -44,6 +44,10 @@ $environmentNames = @(
     "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
     "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
     "CODEX_API_KEY", "OPENAI_API_KEY", "AMP_API_KEY",
+    "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_API_KEY",
+    "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL",
+    "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
+    "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
     "AAGENT_FAKE_CODEX_APP_SERVER_STDOUT", "AAGENT_FAKE_CODEX_APP_SERVER_STATUS",
     "AAGENT_FAKE_VERSION_STDOUT", "AAGENT_FAKE_VERSION_STATUS",
     "AAGENT_FAKE_VERSION_DELAY", "AAGENT_FAKE_VERSION_BYTES"
@@ -71,7 +75,9 @@ try {
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
     $codexPath = Join-Path $fakeBin "codex.ps1"
+    $copilotPath = Join-Path $fakeBin "copilot.ps1"
     Copy-Item -LiteralPath $fakeProvider -Destination $codexPath
+    Copy-Item -LiteralPath $fakeProvider -Destination $copilotPath
     $env:HOME = $homeDir
     $env:XDG_CONFIG_HOME = $configDir
     $env:APPDATA = $appDataDir
@@ -89,6 +95,10 @@ try {
             "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
             "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
             "CODEX_API_KEY", "OPENAI_API_KEY", "AMP_API_KEY",
+            "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_API_KEY",
+            "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL",
+            "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
+            "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
             "AAGENT_FAKE_VERSION_DELAY", "AAGENT_FAKE_VERSION_BYTES"
         )) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
         $env:AAGENT_FAKE_VERSION_STDOUT = "codex-cli 1.2.3"
@@ -128,6 +138,23 @@ try {
     Assert-Contains $result.Stdout "safety:" "doctor omitted safety"
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()) "2" "doctor probe count differs"
     if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) { throw "doctor launched a model" }
+
+    Clear-Case
+    $env:AAGENT_COPILOT_BIN = $copilotPath
+    $env:COPILOT_GITHUB_TOKEN = "seeded-secret-token"
+    $env:AAGENT_FAKE_VERSION_STDOUT = "GitHub Copilot CLI 1.0.78"
+    $result = Invoke-Wrapper @("doctor", "copilot")
+    Assert-Equal $result.Status 0 "Copilot doctor failed"
+    Assert-Contains $result.Stdout "provider: copilot" "Copilot doctor omitted provider"
+    Assert-Contains $result.Stdout "tier: tier2" "Copilot doctor omitted tier"
+    Assert-Contains $result.Stdout "version: GitHub Copilot CLI 1.0.78" "Copilot doctor rejected the safe version"
+    Assert-Contains $result.Stdout "authentication: ready" "Copilot doctor omitted authentication readiness"
+    Assert-Contains $result.Stdout "funding: included_account" "Copilot doctor omitted funding"
+    Assert-Contains $result.Stdout "command: copilot --prompt PROMPT --silent --no-ask-user" "Copilot doctor omitted command"
+    Assert-Contains $result.Stdout "no allow-all or yolo" "Copilot doctor omitted safety caveat"
+    Assert-Equal ([IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()) "1" `
+        "Copilot doctor ran more than its version probe"
+    if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) { throw "Copilot doctor launched a model" }
 
     Clear-Case
     $result = Invoke-Wrapper @("doctor", "claude")
