@@ -141,10 +141,11 @@ aagent_probe_version codex "$fake_bin/codex"
 assert_equals "$AAGENT_VERSION_RESULT" unknown "timed-out version should be unknown"
 assert_equals "$AAGENT_VERSION_REASON" timeout "version timeout reason differs"
 export AAGENT_FAKE_VERSION_DELAY=0
-export AAGENT_FAKE_VERSION_BYTES=65537
-aagent_probe_version codex "$fake_bin/codex"
+oversized_version_provider="$fake_bin/oversized-version"
+printf '%s\n' '#!/usr/bin/env bash' 'head -c 65537 /dev/zero' >"$oversized_version_provider"
+chmod +x "$oversized_version_provider"
+aagent_probe_version codex "$oversized_version_provider"
 assert_equals "$AAGENT_VERSION_REASON" truncated "oversized version reason differs"
-unset AAGENT_FAKE_VERSION_BYTES
 export AAGENT_FAKE_VERSION_STATUS=23
 aagent_probe_version codex "$fake_bin/codex"
 assert_equals "$AAGENT_VERSION_REASON" nonzero "nonzero version reason differs"
