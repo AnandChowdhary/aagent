@@ -59,7 +59,10 @@ failure.
 - a selected provider that fails authentication, proving no failover occurs;
 - discovery of Cursor's separate `agent` executable, legacy alias fallback,
   signature validation, recursion rejection, bounded status/PII parsing,
-  funding ceilings, and local-endpoint gating; and
+  funding ceilings, and local-endpoint gating;
+- Factory Droid prompt/stdin separation, account-key funding ceiling, bounded
+  selected custom-model settings, secret-field rejection, corrected read-only
+  autonomy default, and local-endpoint gating; and
 - `--quiet` and `--dry-run` behavior.
 
 Child authentication policy fixtures additionally verify exact Claude and
@@ -108,7 +111,8 @@ secrets, does not authenticate, and never invokes a prompt. Deterministic fake
 CLI fixtures exercise the same checker in the normal Bash platform matrix.
 Cursor's official compatibility job runs on Linux because its installer
 supports macOS/Linux and documents Windows through WSL; PowerShell behavior is
-covered with deterministic fixtures on Windows.
+covered with deterministic fixtures on Windows. Factory Droid's job installs
+the current official `droid` npm package and validates only version and help.
 
 ## Documentation contract tests
 

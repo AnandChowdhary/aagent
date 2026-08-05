@@ -58,7 +58,7 @@ function Get-AagentAdapterRegistry {
         New-AagentAdapter "qwen" "Qwen Code" "qwen" "AAGENT_QWEN_BIN" "planned" "qwen --prompt PROMPT" "argument-and-stdin" "--model" "json,stream-json" "resume" "Approval modes and budgets remain native." "auth selection" 9 9
         New-AagentAdapter "amp" "Amp" "amp" "AAGENT_AMP_BIN" "tier1" "amp --execute PROMPT" "argument-and-stdin" "none" "stream-json" "continue" "Uses tools without asking by default; no portable read-only promise." "unknown" 10 10
         New-AagentAdapter "kimi" "Kimi Code" "kimi" "AAGENT_KIMI_BIN" "planned" "kimi --prompt PROMPT" "argument" "--model" "stream-json" "unknown" "Print mode uses automatic permission handling." "managed-login metadata" 11 11
-        New-AagentAdapter "droid" "Factory Droid" "droid" "AAGENT_DROID_BIN" "planned" "droid exec PROMPT" "argument" "--model" "json,stream-json,json-rpc" "unknown" "Read-only spec mode by default; autonomy flags are explicit." "account metadata" 12 12
+        New-AagentAdapter "droid" "Factory Droid" "droid" "AAGENT_DROID_BIN" "tier2" "droid exec PROMPT" "argument-and-stdin" "--model" "json,stream-json,stream-jsonrpc" "resume,fork" "Read-only autonomy by default; spec mode and autonomy escalation are explicit native options." "settings model + FACTORY_API_KEY presence" 12 12
         New-AagentAdapter "crush" "Crush" "crush" "AAGENT_CRUSH_BIN" "planned" "crush run PROMPT" "argument" "provider-native" "none" "unknown" "Native permission prompts remain unless user supplies yolo." "unknown" 13 13
         New-AagentAdapter "vibe" "Mistral Vibe" "vibe" "AAGENT_VIBE_BIN" "planned" "vibe --prompt PROMPT" "argument" "provider-native" "json,ndjson" "resume" "Auto-approval, tools, and budgets remain native." "profile metadata" 14 14
         New-AagentAdapter "kiro" "Kiro CLI" "kiro-cli" "AAGENT_KIRO_BIN" "planned" "kiro-cli chat --no-interactive PROMPT" "argument" "provider-native" "none" "unknown" "Trust flags control pre-approved tools and remain explicit." "unknown" 15 15
@@ -1125,7 +1125,222 @@ function Invoke-AagentCursorProbe([string] $Executable) {
     return $result
 }
 
-function Invoke-AagentProviderProbe([string] $Provider, [string] $Executable = "") {
+function Get-AagentDroidSettingsPaths([string] $WorkingDirectory) {
+    $paths = [Collections.Generic.List[string]]::new()
+    $addSettingsDirectory = {
+        param([string] $Directory)
+        foreach ($name in @("settings.json", "settings.local.json")) {
+            $path = [IO.Path]::Combine($Directory, $name)
+            if (-not $paths.Contains($path)) { $paths.Add($path) }
+        }
+    }
+
+    $homeDirectory = [Environment]::GetEnvironmentVariable("HOME", "Process")
+    if ([string]::IsNullOrEmpty($homeDirectory)) {
+        $homeDirectory = [Environment]::GetEnvironmentVariable("USERPROFILE", "Process")
+    }
+    if (-not [string]::IsNullOrEmpty($homeDirectory)) {
+        & $addSettingsDirectory ([IO.Path]::Combine($homeDirectory, ".factory"))
+    }
+
+    if ([string]::IsNullOrEmpty($WorkingDirectory)) {
+        $WorkingDirectory = (Get-Location).ProviderPath
+    }
+    try {
+        $current = [IO.DirectoryInfo]::new((Resolve-Path -LiteralPath $WorkingDirectory -ErrorAction Stop).ProviderPath)
+        $reversed = [Collections.Generic.List[string]]::new()
+        $foundGitRoot = $false
+        while ($null -ne $current) {
+            $reversed.Add($current.FullName)
+            if (Test-Path -LiteralPath ([IO.Path]::Combine($current.FullName, ".git"))) {
+                $foundGitRoot = $true
+                break
+            }
+            $current = $current.Parent
+        }
+        if (-not $foundGitRoot) {
+            $reversed.Clear()
+            $reversed.Add((Resolve-Path -LiteralPath $WorkingDirectory -ErrorAction Stop).ProviderPath)
+        }
+        for ($index = $reversed.Count - 1; $index -ge 0; $index--) {
+            & $addSettingsDirectory ([IO.Path]::Combine($reversed[$index], ".factory"))
+        }
+    } catch {
+        # The launch path is validated separately; an unavailable settings path is not authentication evidence.
+    }
+    return [string[]] $paths.ToArray()
+}
+
+function Get-AagentDroidSettings([string] $WorkingDirectory, [string] $ExplicitModel) {
+    $paths = @(Get-AagentDroidSettingsPaths $WorkingDirectory)
+    $selectedModel = $ExplicitModel
+    $modelSource = if ([string]::IsNullOrEmpty($ExplicitModel)) { "none" } else { "cli_model" }
+    $status = if ([string]::IsNullOrEmpty($ExplicitModel)) { "not_found" } else { "explicit_model" }
+    $settingsSeen = $false
+
+    if ([string]::IsNullOrEmpty($selectedModel)) {
+        foreach ($path in $paths) {
+            $file = Read-AagentProbeFile $path
+            if ($file.Status -eq "not_found") { continue }
+            $settingsSeen = $true
+            if ($file.Status -ne "success") {
+                $file.Capture = ""
+                return [pscustomobject] @{
+                    Model = ""; BaseUrl = ""; Status = $file.Status; ModelSource = "none"
+                }
+            }
+            $json = ConvertFrom-AagentProbeJson $file.Capture
+            $file.Capture = ""
+            if ($null -eq $json) {
+                return [pscustomobject] @{
+                    Model = ""; BaseUrl = ""; Status = "schema_failure"; ModelSource = "none"
+                }
+            }
+            $modelProperty = $json.PSObject.Properties["model"]
+            if ($null -ne $modelProperty) {
+                if ($modelProperty.Value -isnot [string] -or [string]::IsNullOrEmpty($modelProperty.Value)) {
+                    $json = $null
+                    return [pscustomobject] @{
+                        Model = ""; BaseUrl = ""; Status = "schema_failure"; ModelSource = "none"
+                    }
+                }
+                $selectedModel = $modelProperty.Value
+                $modelSource = "settings"
+            }
+            $json = $null
+        }
+        if ($settingsSeen) { $status = "success" }
+    }
+
+    if ([string]::IsNullOrEmpty($selectedModel) -or -not $selectedModel.StartsWith(
+        "custom:", [StringComparison]::Ordinal
+    )) {
+        return [pscustomobject] @{
+            Model = $selectedModel; BaseUrl = ""; Status = $status; ModelSource = $modelSource
+        }
+    }
+
+    $match = [regex]::Match($selectedModel, '-([0-9]+)$')
+    $selectedIndex = 0
+    if (-not $match.Success -or -not [int]::TryParse($match.Groups[1].Value, [ref] $selectedIndex) -or
+        $selectedIndex -lt 0 -or $selectedIndex -gt 1024) {
+        return [pscustomobject] @{
+            Model = $selectedModel; BaseUrl = ""; Status = "custom_model_unresolved"; ModelSource = $modelSource
+        }
+    }
+
+    $baseUrl = ""
+    foreach ($path in $paths) {
+        $file = Read-AagentProbeFile $path
+        if ($file.Status -eq "not_found") { continue }
+        if ($file.Status -ne "success") {
+            $file.Capture = ""
+            return [pscustomobject] @{
+                Model = $selectedModel; BaseUrl = ""; Status = $file.Status; ModelSource = $modelSource
+            }
+        }
+        $json = ConvertFrom-AagentProbeJson $file.Capture
+        $file.Capture = ""
+        if ($null -eq $json) {
+            return [pscustomobject] @{
+                Model = $selectedModel; BaseUrl = ""; Status = "schema_failure"; ModelSource = $modelSource
+            }
+        }
+        $modelsProperty = $json.PSObject.Properties["customModels"]
+        if ($null -ne $modelsProperty) {
+            if ($modelsProperty.Value -isnot [Array]) {
+                $json = $null
+                return [pscustomobject] @{
+                    Model = $selectedModel; BaseUrl = ""; Status = "schema_failure"; ModelSource = $modelSource
+                }
+            }
+            $models = @($modelsProperty.Value)
+            if ($selectedIndex -lt $models.Count) {
+                $baseUrlProperty = $models[$selectedIndex].PSObject.Properties["baseUrl"]
+                if ($null -ne $baseUrlProperty) {
+                    if ($baseUrlProperty.Value -isnot [string] -or
+                        [string]::IsNullOrEmpty($baseUrlProperty.Value)) {
+                        $json = $null
+                        return [pscustomobject] @{
+                            Model = $selectedModel; BaseUrl = ""; Status = "schema_failure"; ModelSource = $modelSource
+                        }
+                    }
+                    $baseUrl = $baseUrlProperty.Value
+                }
+            }
+        }
+        $json = $null
+    }
+    if ([string]::IsNullOrEmpty($baseUrl)) { $status = "custom_model_unresolved" }
+    elseif ($status -eq "not_found") { $status = "success" }
+    return [pscustomobject] @{
+        Model = $selectedModel; BaseUrl = $baseUrl; Status = $status; ModelSource = $modelSource
+    }
+}
+
+function Get-AagentDroidEndpointClass([string] $Endpoint) {
+    switch (Get-AagentCursorEndpointClass $Endpoint) {
+        "local" { return "local" }
+        { $_ -in @("custom", "vendor") } { return "remote" }
+        default { return "invalid" }
+    }
+}
+
+function Invoke-AagentDroidProbe([string] $WorkingDirectory = "", [string] $Model = "") {
+    $result = New-AagentProbeResult "droid"
+    $keyPresent = Test-AagentEnvironmentPresent "FACTORY_API_KEY"
+    $readiness = if ($keyPresent) { "ready" } else { "unknown" }
+    $confidence = if ($keyPresent) { 1 } else { 0 }
+    $shadowing = if ($keyPresent) { @("FACTORY_API_KEY") } else { @() }
+    $settings = Get-AagentDroidSettings $WorkingDirectory $Model
+
+    if ($settings.Status -in @("read_error", "truncated", "schema_failure")) {
+        Set-AagentProbeResult $result $readiness unknown $confidence "Factory account" `
+            droid_settings_unavailable settings $settings.Status $shadowing | Out-Null
+        return $result
+    }
+
+    if (-not [string]::IsNullOrEmpty($settings.Model) -and $settings.Model.StartsWith(
+        "custom:", [StringComparison]::Ordinal
+    )) {
+        if (-not [string]::IsNullOrEmpty($settings.BaseUrl)) {
+            switch (Get-AagentDroidEndpointClass $settings.BaseUrl) {
+                "local" {
+                    Set-AagentProbeResult $result $readiness local $confidence "Local custom model" `
+                        droid_custom_model_local settings success $shadowing | Out-Null
+                }
+                "remote" {
+                    Set-AagentProbeResult $result $readiness payg_byok $confidence "Factory BYOK model" `
+                        droid_custom_model_byok settings success $shadowing | Out-Null
+                }
+                default {
+                    Set-AagentProbeResult $result $readiness unknown $confidence "Custom model" `
+                        droid_custom_endpoint_invalid settings invalid_configuration $shadowing | Out-Null
+                }
+            }
+        } else {
+            Set-AagentProbeResult $result $readiness unknown $confidence "Custom model" `
+                droid_custom_model_unresolved settings $settings.Status $shadowing | Out-Null
+        }
+        return $result
+    }
+
+    if ($keyPresent) {
+        Set-AagentProbeResult $result ready unknown 1 "Factory account" droid_factory_api_key `
+            environment environment_only @("FACTORY_API_KEY") | Out-Null
+    } else {
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" droid_no_passive_account_probe `
+            none skipped_no_passive | Out-Null
+    }
+    return $result
+}
+
+function Invoke-AagentProviderProbe(
+    [string] $Provider,
+    [string] $Executable = "",
+    [string] $WorkingDirectory = "",
+    [string] $Model = ""
+) {
     switch ($Provider) {
         "claude" { return Invoke-AagentClaudeProbe $Executable }
         "codex" { return Invoke-AagentCodexProbe $Executable }
@@ -1134,6 +1349,7 @@ function Invoke-AagentProviderProbe([string] $Provider, [string] $Executable = "
         "gemini" { return Invoke-AagentGeminiProbe }
         "amp" { return Invoke-AagentAmpProbe }
         "cursor" { return Invoke-AagentCursorProbe $Executable }
+        "droid" { return Invoke-AagentDroidProbe $WorkingDirectory $Model }
         default {
             $result = New-AagentProbeResult $Provider
             Set-AagentProbeResult $result unknown unknown 0 "Unknown" unsupported_probe none unsupported | Out-Null
@@ -1400,7 +1616,7 @@ function Get-AagentAutomaticSelection($Result) {
     $discovery = @(Get-AagentDiscovery)
     foreach ($item in $discovery) {
         if ($item.Status -ne "installed") { continue }
-        $probe = Invoke-AagentProviderProbe $item.Id $item.Path
+        $probe = Invoke-AagentProviderProbe $item.Id $item.Path $Result.Cwd $Result.Model
         $projected = Resolve-AagentProbeAuthPolicy $probe $Result.AuthPolicy
         $candidate = New-AagentSelectionCandidate `
             -Adapter $item.Adapter `
@@ -2032,6 +2248,24 @@ function New-AagentAdapterLaunchPlan($Result, $Adapter, [string] $Executable) {
             $stdinData = ""
             $inputDescription = "argv"
         }
+        "droid" {
+            $arguments.Add("exec")
+            $displayArguments.Add("exec")
+            if (-not [string]::IsNullOrEmpty($Result.Model)) {
+                $arguments.Add("--model")
+                $displayArguments.Add("--model")
+                $arguments.Add($Result.Model)
+                $displayArguments.Add("<model>")
+            }
+            foreach ($argument in $Result.NativeArguments) {
+                $arguments.Add($argument)
+                $displayArguments.Add("<native>")
+            }
+            if ($Result.InputMode -ne "stdin") {
+                $arguments.Add($Result.Prompt)
+                $displayArguments.Add("<prompt>")
+            }
+        }
         "amp" {
             if (-not [string]::IsNullOrEmpty($Result.Model)) {
                 return New-AagentAdapterBuildResult `
@@ -2246,7 +2480,7 @@ function Get-AagentInspectionSnapshot {
             $item.Status -eq "installed" -and
             ([string]::IsNullOrEmpty($Scope) -or $Scope -ceq $item.Id)
         ) {
-            $probe = Invoke-AagentProviderProbe $item.Id $item.Path
+            $probe = Invoke-AagentProviderProbe $item.Id $item.Path $Result.Cwd $Result.Model
             $projected = Resolve-AagentProbeAuthPolicy $probe $Result.AuthPolicy
             $candidate = New-AagentSelectionCandidate `
                 -Adapter $item.Adapter `

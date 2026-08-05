@@ -85,9 +85,11 @@ aagent_initialize_registry() {
     aagent_register_adapter "kimi" "Kimi Code" "kimi" "AAGENT_KIMI_BIN" "planned" \
         "kimi --prompt PROMPT" "argument" "--model" "stream-json" "unknown" \
         "Print mode uses automatic permission handling." "managed-login metadata" "11" "11"
-    aagent_register_adapter "droid" "Factory Droid" "droid" "AAGENT_DROID_BIN" "planned" \
-        "droid exec PROMPT" "argument" "--model" "json,stream-json,json-rpc" "unknown" \
-        "Read-only spec mode by default; autonomy flags are explicit." "account metadata" "12" "12"
+    aagent_register_adapter "droid" "Factory Droid" "droid" "AAGENT_DROID_BIN" "tier2" \
+        "droid exec PROMPT" "argument-and-stdin" "--model" "json,stream-json,stream-jsonrpc" \
+        "resume,fork" \
+        "Read-only autonomy by default; spec mode and autonomy escalation are explicit native options." \
+        "settings model + FACTORY_API_KEY presence" "12" "12"
     aagent_register_adapter "crush" "Crush" "crush" "AAGENT_CRUSH_BIN" "planned" \
         "crush run PROMPT" "argument" "provider-native" "none" "unknown" \
         "Native permission prompts remain unless user supplies yolo." "unknown" "13" "13"
@@ -1535,6 +1537,223 @@ aagent_probe_cursor() {
     fi
 }
 
+aagent_add_droid_settings_path() {
+    local requested="$1"
+    local existing
+    for existing in "${AAGENT_DROID_SETTINGS_PATHS[@]+"${AAGENT_DROID_SETTINGS_PATHS[@]}"}"; do
+        [[ "$existing" != "$requested" ]] || return 0
+    done
+    AAGENT_DROID_SETTINGS_PATHS+=("$requested")
+}
+
+aagent_add_droid_settings_directory() {
+    local directory="$1"
+    aagent_add_droid_settings_path "$directory/settings.json"
+    aagent_add_droid_settings_path "$directory/settings.local.json"
+}
+
+aagent_collect_droid_settings_paths() {
+    local working_directory="${AAGENT_CWD:-$PWD}"
+    local current="$working_directory"
+    local parent=""
+    local found_git_root=0
+    local index
+    local -a reversed_directories=()
+
+    AAGENT_DROID_SETTINGS_PATHS=()
+    if [[ -n "${HOME-}" ]]; then
+        aagent_add_droid_settings_directory "$HOME/.factory"
+    fi
+
+    while [[ -n "$current" ]]; do
+        reversed_directories+=("$current")
+        if [[ -e "$current/.git" ]]; then
+            found_git_root=1
+            break
+        fi
+        [[ "$current" != "/" ]] || break
+        parent="${current%/*}"
+        [[ -n "$parent" ]] || parent="/"
+        [[ "$parent" != "$current" ]] || break
+        current="$parent"
+    done
+
+    if (( ! found_git_root )); then
+        reversed_directories=("$working_directory")
+    fi
+    for ((index = ${#reversed_directories[@]} - 1; index >= 0; index--)); do
+        aagent_add_droid_settings_directory "${reversed_directories[$index]}/.factory"
+    done
+}
+
+aagent_resolve_droid_settings() {
+    local model_path=""
+    local base_url_path=""
+    local path=""
+    local value=""
+    local selected_index=""
+    local settings_seen=0
+
+    AAGENT_DROID_SELECTED_MODEL="${AAGENT_MODEL-}"
+    AAGENT_DROID_CUSTOM_BASE_URL=""
+    AAGENT_DROID_SETTINGS_STATUS="not_found"
+    AAGENT_DROID_MODEL_SOURCE="none"
+    aagent_collect_droid_settings_paths
+    model_path="$(aagent_json_make_path model)"
+
+    if [[ -n "$AAGENT_DROID_SELECTED_MODEL" ]]; then
+        AAGENT_DROID_SETTINGS_STATUS="explicit_model"
+        AAGENT_DROID_MODEL_SOURCE="cli_model"
+    else
+        for path in "${AAGENT_DROID_SETTINGS_PATHS[@]}"; do
+            aagent_read_bounded_file "$path"
+            [[ "$AAGENT_PROBE_FILE_STATUS" != "not_found" ]] || continue
+            settings_seen=1
+            if [[ "$AAGENT_PROBE_FILE_STATUS" != "success" ]]; then
+                AAGENT_DROID_SETTINGS_STATUS="$AAGENT_PROBE_FILE_STATUS"
+                AAGENT_PROBE_CAPTURE=""
+                return 0
+            fi
+            if ! aagent_json_parse_document "$AAGENT_PROBE_CAPTURE" "$model_path"; then
+                AAGENT_PROBE_CAPTURE=""
+                aagent_json_reset
+                AAGENT_DROID_SETTINGS_STATUS="schema_failure"
+                return 0
+            fi
+            AAGENT_PROBE_CAPTURE=""
+            value=""
+            if aagent_json_get "$model_path"; then
+                if [[ "$AAGENT_JSON_TYPE" != "string" ]]; then
+                    aagent_json_reset
+                    AAGENT_DROID_SETTINGS_STATUS="schema_failure"
+                    return 0
+                fi
+                value="$AAGENT_JSON_VALUE"
+            fi
+            aagent_json_reset
+            if [[ -n "$value" ]]; then
+                AAGENT_DROID_SELECTED_MODEL="$value"
+                AAGENT_DROID_MODEL_SOURCE="settings"
+            fi
+        done
+        if (( settings_seen )); then
+            AAGENT_DROID_SETTINGS_STATUS="success"
+        fi
+    fi
+
+    [[ "$AAGENT_DROID_SELECTED_MODEL" == custom:* ]] || return 0
+    if [[ "$AAGENT_DROID_SELECTED_MODEL" =~ -([0-9]+)$ ]]; then
+        selected_index="${BASH_REMATCH[1]}"
+    else
+        AAGENT_DROID_SETTINGS_STATUS="custom_model_unresolved"
+        return 0
+    fi
+    if (( 10#$selected_index > 1024 )); then
+        AAGENT_DROID_SETTINGS_STATUS="custom_model_unresolved"
+        return 0
+    fi
+    base_url_path="$(aagent_json_make_path customModels)#5:array#$((10#$selected_index))$(aagent_json_make_path baseUrl)"
+    for path in "${AAGENT_DROID_SETTINGS_PATHS[@]}"; do
+        aagent_read_bounded_file "$path"
+        [[ "$AAGENT_PROBE_FILE_STATUS" != "not_found" ]] || continue
+        if [[ "$AAGENT_PROBE_FILE_STATUS" != "success" ]]; then
+            AAGENT_DROID_SETTINGS_STATUS="$AAGENT_PROBE_FILE_STATUS"
+            AAGENT_PROBE_CAPTURE=""
+            return 0
+        fi
+        if ! aagent_json_parse_document "$AAGENT_PROBE_CAPTURE" "$base_url_path"; then
+            AAGENT_PROBE_CAPTURE=""
+            aagent_json_reset
+            AAGENT_DROID_SETTINGS_STATUS="schema_failure"
+            return 0
+        fi
+        AAGENT_PROBE_CAPTURE=""
+        value=""
+        if aagent_json_get "$base_url_path"; then
+            if [[ "$AAGENT_JSON_TYPE" != "string" ]]; then
+                aagent_json_reset
+                AAGENT_DROID_SETTINGS_STATUS="schema_failure"
+                return 0
+            fi
+            value="$AAGENT_JSON_VALUE"
+        fi
+        aagent_json_reset
+        if [[ -n "$value" ]]; then
+            AAGENT_DROID_CUSTOM_BASE_URL="$value"
+        fi
+    done
+    if [[ -z "$AAGENT_DROID_CUSTOM_BASE_URL" ]]; then
+        AAGENT_DROID_SETTINGS_STATUS="custom_model_unresolved"
+    elif [[ "$AAGENT_DROID_SETTINGS_STATUS" == "not_found" ]]; then
+        AAGENT_DROID_SETTINGS_STATUS="success"
+    fi
+}
+
+aagent_classify_droid_custom_endpoint() {
+    aagent_classify_cursor_endpoint "$1"
+    case "$AAGENT_CURSOR_ENDPOINT_CLASS" in
+        local) AAGENT_DROID_ENDPOINT_CLASS="local" ;;
+        custom|vendor) AAGENT_DROID_ENDPOINT_CLASS="remote" ;;
+        *) AAGENT_DROID_ENDPOINT_CLASS="invalid" ;;
+    esac
+}
+
+aagent_probe_droid() {
+    local key_present=0
+    local readiness="unknown"
+    local confidence=0
+    local shadowing=""
+
+    aagent_reset_probe_result droid
+    if aagent_environment_has FACTORY_API_KEY; then
+        key_present=1
+        readiness="ready"
+        confidence=1
+        shadowing="FACTORY_API_KEY"
+    fi
+    aagent_resolve_droid_settings
+
+    case "$AAGENT_DROID_SETTINGS_STATUS" in
+        read_error|truncated|schema_failure)
+            aagent_set_probe_result "$readiness" unknown "$confidence" "Factory account" \
+                droid_settings_unavailable settings "$AAGENT_DROID_SETTINGS_STATUS" "$shadowing"
+            return 0
+            ;;
+    esac
+
+    if [[ "$AAGENT_DROID_SELECTED_MODEL" == custom:* ]]; then
+        if [[ -n "$AAGENT_DROID_CUSTOM_BASE_URL" ]]; then
+            aagent_classify_droid_custom_endpoint "$AAGENT_DROID_CUSTOM_BASE_URL"
+            case "$AAGENT_DROID_ENDPOINT_CLASS" in
+                local)
+                    aagent_set_probe_result "$readiness" local "$confidence" "Local custom model" \
+                        droid_custom_model_local settings success "$shadowing"
+                    ;;
+                remote)
+                    aagent_set_probe_result "$readiness" payg_byok "$confidence" "Factory BYOK model" \
+                        droid_custom_model_byok settings success "$shadowing"
+                    ;;
+                *)
+                    aagent_set_probe_result "$readiness" unknown "$confidence" "Custom model" \
+                        droid_custom_endpoint_invalid settings invalid_configuration "$shadowing"
+                    ;;
+            esac
+        else
+            aagent_set_probe_result "$readiness" unknown "$confidence" "Custom model" \
+                droid_custom_model_unresolved settings "$AAGENT_DROID_SETTINGS_STATUS" "$shadowing"
+        fi
+        return 0
+    fi
+
+    if (( key_present )); then
+        aagent_set_probe_result ready unknown 1 "Factory account" droid_factory_api_key \
+            environment environment_only FACTORY_API_KEY
+    else
+        aagent_set_probe_result unknown unknown 0 "Unknown" droid_no_passive_account_probe \
+            none skipped_no_passive
+    fi
+}
+
 aagent_probe_provider() {
     local provider="$1"
     local executable="$2"
@@ -1546,6 +1765,7 @@ aagent_probe_provider() {
         gemini) aagent_probe_gemini ;;
         amp) aagent_probe_amp ;;
         cursor) aagent_probe_cursor "$executable" ;;
+        droid) aagent_probe_droid ;;
         *)
             aagent_reset_probe_result "$provider"
             aagent_set_probe_result unknown unknown 0 "Unknown" unsupported_probe none unsupported
@@ -2517,6 +2737,14 @@ aagent_build_adapter_launch_plan() {
             AAGENT_ADAPTER_STDIN_MODE="closed"
             AAGENT_ADAPTER_STDIN_DATA=""
             AAGENT_ADAPTER_INPUT_DESCRIPTION="argv"
+            ;;
+        droid)
+            aagent_append_adapter_argument "exec" "exec"
+            aagent_append_model_argument "--model"
+            aagent_append_native_arguments
+            if [[ "$AAGENT_INPUT_MODE" != "stdin" ]]; then
+                aagent_append_adapter_argument "$AAGENT_PROMPT" "<prompt>"
+            fi
             ;;
         amp)
             if [[ -n "$AAGENT_MODEL" ]]; then

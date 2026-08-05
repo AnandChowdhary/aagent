@@ -179,11 +179,12 @@ file existence alone is low-confidence evidence and cannot establish a plan.
 | Gemini CLI | `security.auth.selectedType` from documented settings | `oauth-personal` is account-included; `gemini-api-key`, Vertex, and ADC paths are metered or organization-funded. The local signal cannot distinguish Google free, AI Pro/Ultra, or Workspace tiers. |
 | Amp | Installed/account state and `amp usage` when explicitly requested | `AMP_API_KEY` is an Amp account credential, not an Anthropic key. Credential shape cannot distinguish subscription, linked ChatGPT access, credits, or pay-as-you-go, so passive funding is often `unknown`. |
 | Cursor CLI | `agent status --format json`, reduced to three authentication booleans and an optional endpoint class; `CURSOR_API_KEY` presence is a lower-confidence fallback | Authenticated vendor accounts are at most `included_account`; local endpoints require explicit opt-in, custom endpoints are funding-unknown, and plan or remaining allowance is never inferred. The status command may perform account enrichment. |
+| Factory Droid | `FACTORY_API_KEY` presence plus bounded documented selected-model and custom-model endpoint settings; no CLI account probe | The key proves only a Factory account path and remains funding-unknown. A selected remote custom endpoint is `payg_byok`; loopback is opt-in `local`. Browser login, plan, credits, and allowance remain unknown. |
 
 Additional adapters may classify only documented provider/model paths.
 Examples include Qwen's Coding Plan endpoint as included, Goose with Ollama as
-local, and Cline's `openai-codex` provider as subscription-backed. Factory,
-Cursor, Kimi, Crush, and Vibe account keys must
+local, and Cline's `openai-codex` provider as subscription-backed. Cursor,
+Kimi, Crush, and Vibe account keys must
 not be treated as direct BYOK solely because they are called API keys.
 
 ## Credential persistence boundary

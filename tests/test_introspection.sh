@@ -31,11 +31,12 @@ home_dir="$test_dir/home"
 fake_bin="$test_dir/bin with spaces"
 record_dir="$test_dir/records"
 missing_dir="$test_dir/missing"
-mkdir -p "$home_dir/.config/aagent" "$fake_bin" "$record_dir"
+mkdir -p "$home_dir/.config/aagent" "$home_dir/.factory" "$fake_bin" "$record_dir"
 cp "$fake_provider" "$fake_bin/codex"
 cp "$fake_provider" "$fake_bin/copilot"
 cp "$fake_provider" "$fake_bin/agent"
-chmod +x "$fake_bin/codex" "$fake_bin/copilot" "$fake_bin/agent"
+cp "$fake_provider" "$fake_bin/droid"
+chmod +x "$fake_bin/codex" "$fake_bin/copilot" "$fake_bin/agent" "$fake_bin/droid"
 
 export HOME="$home_dir"
 export XDG_CONFIG_HOME="$home_dir/.config"
@@ -67,6 +68,8 @@ clear_case() {
     unset COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS COPILOT_MODEL
     unset COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
     unset CURSOR_API_KEY AAGENT_FAKE_CURSOR_STATUS_STDOUT AAGENT_FAKE_CURSOR_STATUS_STATUS
+    unset FACTORY_API_KEY
+    rm -f "$home_dir/.factory/settings.json" "$home_dir/.factory/settings.local.json"
     unset AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
     unset AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
     unset AAGENT_FAKE_VERSION_DELAY AAGENT_FAKE_VERSION_BYTES
@@ -169,6 +172,27 @@ assert_contains "$cursor_doctor_output" "command: agent --print --output-format 
 assert_contains "$cursor_doctor_output" "explicitly forces" "Cursor doctor omitted safety caveat"
 assert_equals "$(<"$record_dir/probe.count")" 4 "Cursor doctor probe count differs"
 [[ ! -e "$record_dir/run.count" ]] || fail "Cursor doctor launched a model"
+
+clear_case
+export AAGENT_DROID_BIN="$fake_bin/droid"
+export FACTORY_API_KEY='seeded-secret-token'
+export AAGENT_FAKE_VERSION_STDOUT='0.188.0'
+printf '%s' '{"model":"custom:remote-0","customModels":[{"baseUrl":"https://models.example.test/v1","apiKey":"seeded-secret-token","email":"person@example.com","organization":"Secret Org"}]}' >"$home_dir/.factory/settings.json"
+run_wrapper "$test_dir/droid-doctor" doctor droid
+assert_equals "$AAGENT_TEST_STATUS" 0 "Droid doctor failed"
+droid_doctor_output="$(<"$test_dir/droid-doctor.stdout")"
+assert_contains "$droid_doctor_output" "provider: droid" "Droid doctor omitted provider"
+assert_contains "$droid_doctor_output" "tier: tier2" "Droid doctor omitted tier"
+assert_contains "$droid_doctor_output" "version: 0.188.0" "Droid doctor omitted safe version"
+assert_contains "$droid_doctor_output" "authentication: ready" "Droid doctor omitted readiness"
+assert_contains "$droid_doctor_output" "funding: payg_byok" "Droid doctor omitted BYOK funding"
+assert_contains "$droid_doctor_output" "command: droid exec PROMPT" "Droid doctor omitted command"
+assert_contains "$droid_doctor_output" "Read-only autonomy by default" "Droid doctor omitted safety caveat"
+assert_not_contains "$droid_doctor_output" "seeded-secret-token" "Droid doctor leaked API key"
+assert_not_contains "$droid_doctor_output" "person@example.com" "Droid doctor leaked email"
+assert_not_contains "$droid_doctor_output" "Secret Org" "Droid doctor leaked organization"
+assert_equals "$(<"$record_dir/probe.count")" 1 "Droid doctor ran more than its version probe"
+[[ ! -e "$record_dir/run.count" ]] || fail "Droid doctor launched a model"
 
 clear_case
 run_wrapper "$test_dir/missing-doctor" doctor claude

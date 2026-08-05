@@ -29,8 +29,10 @@ used for the interface and selection survey.
   [quota and pricing](https://geminicli.com/docs/resources/quota-and-pricing/)
 - Factory Droid: [headless exec](https://docs.factory.ai/droid-exec/overview),
   [CLI reference](https://docs.factory.ai/droid-cli/cli-reference),
+  [settings](https://docs.factory.ai/droid-cli/settings),
   [BYOK](https://docs.factory.ai/model-independence/byok),
-  [pricing](https://docs.factory.ai/pricing/individuals)
+  [pricing](https://docs.factory.ai/pricing/individuals), and
+  [2026-08-05 revalidation](../research/factory-droid-2026-08-05.md)
 - GitHub Copilot CLI: [official repository](https://github.com/github/copilot-cli),
   [programmatic execution](https://docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/run-cli-programmatically),
   [programmatic reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-programmatic-reference),

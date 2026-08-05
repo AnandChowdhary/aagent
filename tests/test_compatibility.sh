@@ -49,6 +49,7 @@ case "$surface" in
             amp) printf '%s\n' 'Usage: amp --execute --stream-json' ;;
             gemini) printf '%s\n' 'Usage: gemini --prompt --model' ;;
             cursor) printf '%s\n' 'Usage: agent Start the Cursor Agent --print --output-format --model --force status' ;;
+            droid) printf '%s\n' 'Usage: droid exec' ;;
         esac
         ;;
     'auth --help')
@@ -58,7 +59,13 @@ case "$surface" in
             *) exit 2 ;;
         esac
         ;;
-    'exec --help') printf '%s\n' 'codex exec --model' ;;
+    'exec --help')
+        case "$provider" in
+            codex) printf '%s\n' 'codex exec --model' ;;
+            droid) printf '%s\n' 'droid exec --output-format --model --use-spec --auto --skip-permissions-unsafe Read-only mode' ;;
+            *) exit 2 ;;
+        esac
+        ;;
     'app-server --help') printf '%s\n' 'codex app-server' ;;
     'login --help') printf '%s\n' 'codex login status' ;;
     'run --help') printf '%s\n' 'opencode run --model --format' ;;
@@ -69,7 +76,7 @@ esac
 EOF
 chmod +x "$fake_cli"
 
-for provider in claude codex opencode copilot amp gemini cursor; do
+for provider in claude codex opencode copilot amp gemini cursor droid; do
     output_dir="$test_dir/reports $provider"
     output="$(
         AAGENT_FAKE_COMPAT_PROVIDER="$provider" \
@@ -92,6 +99,15 @@ default_cursor_output="$(
 )"
 assert_contains "$default_cursor_output" "passed for cursor" "Cursor default executable is not agent"
 
+ln -s "$fake_cli" "$test_dir/droid"
+default_droid_output="$(
+    PATH="$test_dir:$PATH" \
+    AAGENT_FAKE_COMPAT_PROVIDER=droid \
+    AAGENT_COMPAT_OUTPUT_DIR="$test_dir/default-droid-report" \
+        bash "$compatibility_script" droid
+)"
+assert_contains "$default_droid_output" "passed for droid" "Droid default executable differs"
+
 set +e
 AAGENT_FAKE_COMPAT_PROVIDER=amp \
 AAGENT_FAKE_COMPAT_MISSING='amp:--help ' \
@@ -105,12 +121,12 @@ assert_contains "$(<"$test_dir/drift.stderr")" \
     "amp help no longer advertises --execute" "command drift diagnostic differs"
 
 set +e
-bash "$compatibility_script" droid "$fake_cli" \
+bash "$compatibility_script" cline "$fake_cli" \
     >"$test_dir/unknown.stdout" 2>"$test_dir/unknown.stderr"
 unknown_status=$?
 set -e
 [[ "$unknown_status" == 64 ]] || fail "unknown provider did not use status 64"
 assert_contains "$(<"$test_dir/unknown.stderr")" \
-    "unknown supported provider: droid" "unknown provider diagnostic differs"
+    "unknown supported provider: cline" "unknown provider diagnostic differs"
 
 printf 'Compatibility workflow Bash tests passed.\n'

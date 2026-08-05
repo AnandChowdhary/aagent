@@ -152,11 +152,27 @@ candidate.
   when a compatible executable is present.
 - Revalidation: [2026-08-05 Cursor CLI](../research/cursor-cli-2026-08-05.md).
 
+### Factory Droid (`droid`)
+
+- Invocation: `droid exec PROMPT`.
+- Model: `--model ID`.
+- Input: a positional prompt, piped stdin, or both as separate channels.
+- Native output: text by default; JSON, stream JSON, and stream JSON-RPC remain
+  native capability metadata.
+- Sessions: native resume and fork flags remain metadata only.
+- Permissions: no native flag means read-only autonomy. Spec Mode is opt-in;
+  `aagent` generates no `--use-spec`, `--auto`, or
+  `--skip-permissions-unsafe` option.
+- Authentication: `FACTORY_API_KEY` is low-confidence Factory account
+  readiness with unknown funding. Bounded documented settings may classify
+  the selected custom model's endpoint as `local` or remote `payg_byok`; raw
+  API keys, browser tokens, plan tier, credits, and quota remain unread.
+- Revalidation: [2026-08-05 Factory Droid](../research/factory-droid-2026-08-05.md).
+
 ## Tier 2: planned adapters
 
 | ID | Executable and one-shot form | Structured output | Important compatibility note |
 | --- | --- | --- | --- |
-| `droid` | `droid exec PROMPT` | JSON, stream JSON, and JSON-RPC | Read-only spec mode by default; `--auto low/medium/high` grants increasing autonomy. |
 | `goose` | `goose run --text PROMPT` | JSON and stream JSON | Headless automation commonly uses `GOOSE_MODE=auto`; provider and model are separately selectable. |
 | `qwen` | `qwen --prompt PROMPT` | JSON and stream JSON | Offers plan/default/auto-edit/auto/yolo approval modes and explicit run budgets. |
 | `kimi` | `kimi --prompt PROMPT` | stream JSON | Print mode uses automatic permission handling and cannot be combined with its interactive `--auto`, `--plan`, or `--yolo` flags. |
@@ -173,7 +189,6 @@ to call the initial implementation complete.
 
 | Provider | Safe evidence | Selector limitation |
 | --- | --- | --- |
-| Factory Droid | Account readiness plus selected Factory-managed or BYOK model configuration | Browser login and `FACTORY_API_KEY` both access Factory accounts; neither alone identifies funding. |
 | Goose | Documented nonsecret provider ID | Native Claude/Codex/Cursor adapters inherit the underlying CLI's funding class. `goose info --check` sends a real prompt and is prohibited during selection. |
 | Qwen Code | Coding Plan endpoint and documented auth-selection configuration | A Coding Plan uses an API key but is `included_confirmed`; generic API keys remain provider-specific. |
 | Kimi Code | Managed-login or selected-provider metadata | Kimi membership API keys can share membership quota, so keys are not automatically BYOK. |
