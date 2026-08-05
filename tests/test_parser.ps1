@@ -64,7 +64,7 @@ $originalXdg = [Environment]::GetEnvironmentVariable("XDG_CONFIG_HOME", "Process
 $originalAppData = [Environment]::GetEnvironmentVariable("APPDATA", "Process")
 $originalPath = $env:PATH
 $originalRecordDir = [Environment]::GetEnvironmentVariable("AAGENT_FAKE_RECORD_DIR", "Process")
-$overrideNames = @("AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN")
+$overrideNames = @("AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN", "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN")
 $originalOverrides = @{}
 foreach ($name in $overrideNames) {
     $originalOverrides[$name] = [Environment]::GetEnvironmentVariable($name, "Process")

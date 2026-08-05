@@ -97,9 +97,9 @@ to avoid cost and secret exposure. A scheduled compatibility workflow may
 install current CLIs, inspect their documented help output, and flag adapter
 drift without running a paid prompt.
 
-The weekly and manually dispatchable `Tier 1 compatibility` workflow performs
+The weekly and manually dispatchable `Provider compatibility` workflow performs
 that non-secret drift check on isolated GitHub-hosted Linux jobs. It installs
-the current official distribution of each Tier 1 CLI, records only
+the current official distribution of each supported CLI, records only
 help/version text, and asserts the one-shot, model, structured-output, and
 passive-status command surfaces used by its adapter. It receives no repository
 secrets, does not authenticate, and never invokes a prompt. Deterministic fake

@@ -43,7 +43,8 @@ fi
 source "$aagent_script"
 for flag in \
     --yolo --dangerously-skip-permissions --skip-permissions-unsafe \
-    --allow-all-tools --auto --force --permission-mode=bypassPermissions \
+    --allow-all-tools --allow-all-paths --allow-all-urls --allow-all \
+    --auto --force --permission-mode=bypassPermissions \
     --approval-mode=yolo --sandbox=danger-full-access; do
     aagent_is_unsafe_permission_flag "$flag" || fail "permission denylist omitted $flag"
 done
@@ -71,7 +72,8 @@ missing_dir="$test_dir/missing"
 marker_dir="$test_dir/markers"
 mkdir -p "$home_dir/.claude" "$home_dir/.codex" "$fake_bin" "$record_dir" "$work_dir" "$marker_dir"
 cp "$fake_provider" "$fake_bin/codex"
-chmod +x "$fake_bin/codex"
+cp "$fake_provider" "$fake_bin/copilot"
+chmod +x "$fake_bin/codex" "$fake_bin/copilot"
 
 # Credential locations are traps. A direct read would block on the FIFO; helper
 # lookups leave a marker. The provider status fixture is the only allowed source.
@@ -89,6 +91,7 @@ export AAGENT_FAKE_RECORD_DIR="$record_dir"
 export AAGENT_CODEX_BIN="$fake_bin/codex"
 export AAGENT_CLAUDE_BIN="$missing_dir/claude"
 export AAGENT_OPENCODE_BIN="$missing_dir/opencode"
+export AAGENT_COPILOT_BIN="$fake_bin/copilot"
 export AAGENT_GEMINI_BIN="$missing_dir/gemini"
 export AAGENT_AMP_BIN="$missing_dir/amp"
 export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro","email":"person@example.com","organization":"Secret Org"},"requiresOpenaiAuth":true}}'
@@ -96,6 +99,8 @@ export AAGENT_FAKE_CODEX_APP_SERVER_STATUS=0
 export AAGENT_FAKE_RUN_STATUS=0
 unset AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
 unset CODEX_API_KEY OPENAI_API_KEY
+export COPILOT_PROVIDER_BASE_URL='https://seeded-secret-token@example.test/v1'
+export COPILOT_PROVIDER_HEADERS='Authorization=seeded-secret-token'
 unset AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
 unset AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
 
@@ -113,6 +118,7 @@ assert_equals "$AAGENT_TEST_STATUS" 0 "credential audit providers command failed
 [[ -z "$(find "$marker_dir" -type f -print -quit)" ]] || fail "a credential helper was invoked"
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "person@example.com" "providers leaked an email"
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "Secret Org" "providers leaked an organization"
+assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "seeded-secret-token" "providers leaked Copilot configuration"
 [[ ! -e "$record_dir/run.count" ]] || fail "credential audit launched a model"
 
 rm -rf "$record_dir"
@@ -138,7 +144,8 @@ mkdir -p "$record_dir"
 run_wrapper "$test_dir/safe-dry-run" --provider codex --dry-run 'say hello'
 assert_equals "$AAGENT_TEST_STATUS" 0 "safe dry-run failed"
 safe_plan="$(<"$test_dir/safe-dry-run.stdout")"
-for flag in --yolo --dangerously-skip-permissions --allow-all-tools --auto; do
+for flag in --yolo --dangerously-skip-permissions --allow-all-tools \
+    --allow-all-paths --allow-all-urls --allow-all --auto; do
     assert_not_contains "$safe_plan" "$flag" "wrapper injected $flag"
 done
 [[ ! -e "$record_dir/run.count" ]] || fail "safe dry-run launched a model"

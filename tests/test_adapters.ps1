@@ -91,6 +91,7 @@ function Get-AdapterModel([string] $Provider) {
         "claude" { return "claude-model" }
         "codex" { return "codex-model" }
         "opencode" { return "provider/model" }
+        "copilot" { return "copilot-model" }
         "gemini" { return "gemini-model" }
         "amp" { return "" }
     }
@@ -101,6 +102,7 @@ function Get-AdapterDisplayName([string] $Provider) {
         "claude" { return "Claude Code" }
         "codex" { return "Codex CLI" }
         "opencode" { return "OpenCode" }
+        "copilot" { return "GitHub Copilot CLI" }
         "amp" { return "Amp" }
         "gemini" { return "Gemini CLI" }
     }
@@ -111,6 +113,7 @@ function Get-PromptArguments([string] $Provider, [string] $Prompt, [string] $Mod
         "claude" { return @("--print", $Prompt, "--model", $Model, "--native-flag", "-leading-value") }
         "codex" { return @("exec", "--model", $Model, "--native-flag", "-leading-value", $Prompt) }
         "opencode" { return @("run", "--model", $Model, "--native-flag", "-leading-value", $Prompt) }
+        "copilot" { return @("--prompt", $Prompt, "--silent", "--no-ask-user", "--model", $Model, "--native-flag", "-leading-value") }
         "amp" { return @("--execute", $Prompt, "--native-flag", "-leading-value") }
         "gemini" { return @("--model", $Model, "--native-flag", "-leading-value", "--prompt", $Prompt) }
     }
@@ -121,6 +124,7 @@ function Get-StdinCase([string] $Provider, [string] $Stdin) {
         "claude" { return [pscustomobject] @{ Arguments = @("--print"); Stdin = $Stdin } }
         "codex" { return [pscustomobject] @{ Arguments = @("exec", "-"); Stdin = $Stdin } }
         "opencode" { return [pscustomobject] @{ Arguments = @("run", $Stdin); Stdin = "" } }
+        "copilot" { return [pscustomobject] @{ Arguments = @("--prompt", $Stdin, "--silent", "--no-ask-user"); Stdin = "" } }
         "amp" { return [pscustomobject] @{ Arguments = @("--execute"); Stdin = $Stdin } }
         "gemini" { return [pscustomobject] @{ Arguments = @(); Stdin = $Stdin } }
     }
@@ -136,6 +140,12 @@ function Get-BothCase([string] $Provider, [string] $Prompt, [string] $Stdin) {
                 Stdin = ""
             }
         }
+        "copilot" {
+            return [pscustomobject] @{
+                Arguments = @("--prompt", "$Prompt`n`n--- stdin context ---`n$Stdin", "--silent", "--no-ask-user")
+                Stdin = ""
+            }
+        }
         "amp" { return [pscustomobject] @{ Arguments = @("--execute", $Prompt); Stdin = $Stdin } }
         "gemini" { return [pscustomobject] @{ Arguments = @("--prompt", $Prompt); Stdin = $Stdin } }
     }
@@ -143,7 +153,8 @@ function Get-BothCase([string] $Provider, [string] $Prompt, [string] $Stdin) {
 
 $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-adapters-" + [guid]::NewGuid().ToString("N"))
 $overrideNames = @(
-    "AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_AMP_BIN", "AAGENT_GEMINI_BIN"
+    "AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN",
+    "AAGENT_AMP_BIN", "AAGENT_GEMINI_BIN"
 )
 $environmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "PATH",
@@ -158,7 +169,10 @@ $environmentNames = @(
     "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
     "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
     "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
-    "CODEX_API_KEY", "OPENAI_API_KEY"
+    "CODEX_API_KEY", "OPENAI_API_KEY", "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE",
+    "COPILOT_PROVIDER_API_KEY", "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS",
+    "COPILOT_MODEL", "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
+    "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"
 ) + $overrideNames
 $originalEnvironment = @{}
 foreach ($name in $environmentNames) {
@@ -194,7 +208,7 @@ try {
         }
     }
 
-    $providers = @("claude", "codex", "opencode", "amp", "gemini")
+    $providers = @("claude", "codex", "opencode", "copilot", "amp", "gemini")
     foreach ($provider in $providers) {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }

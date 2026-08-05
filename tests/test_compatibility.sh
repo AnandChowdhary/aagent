@@ -45,6 +45,7 @@ case "$surface" in
             claude) printf '%s\n' 'Usage: claude --print --model' ;;
             codex) printf '%s\n' 'Usage: codex exec app-server login' ;;
             opencode) printf '%s\n' 'Usage: opencode run auth' ;;
+            copilot) printf '%s\n' 'Usage: copilot --prompt --model --silent --no-ask-user' ;;
             amp) printf '%s\n' 'Usage: amp --execute --stream-json' ;;
             gemini) printf '%s\n' 'Usage: gemini --prompt --model' ;;
         esac
@@ -60,12 +61,13 @@ case "$surface" in
     'app-server --help') printf '%s\n' 'codex app-server' ;;
     'login --help') printf '%s\n' 'codex login status' ;;
     'run --help') printf '%s\n' 'opencode run --model --format' ;;
+    'help providers') printf '%s\n' 'COPILOT_PROVIDER_BASE_URL' ;;
     *) exit 2 ;;
 esac
 EOF
 chmod +x "$fake_cli"
 
-for provider in claude codex opencode amp gemini; do
+for provider in claude codex opencode copilot amp gemini; do
     output_dir="$test_dir/reports $provider"
     output="$(
         AAGENT_FAKE_COMPAT_PROVIDER="$provider" \
@@ -98,6 +100,6 @@ unknown_status=$?
 set -e
 [[ "$unknown_status" == 64 ]] || fail "unknown provider did not use status 64"
 assert_contains "$(<"$test_dir/unknown.stderr")" \
-    "unknown Tier 1 provider: cursor" "unknown provider diagnostic differs"
+    "unknown supported provider: cursor" "unknown provider diagnostic differs"
 
 printf 'Compatibility workflow Bash tests passed.\n'

@@ -50,7 +50,7 @@ function Get-AagentAdapterRegistry {
         New-AagentAdapter "codex" "Codex CLI" "codex" "AAGENT_CODEX_BIN" "tier1" "codex exec PROMPT" "argument-and-stdin" "--model" "jsonl" "resume" "Read-only sandbox by default; broader sandboxes are explicit." "app-server account/read" 1 1
         New-AagentAdapter "claude" "Claude Code" "claude" "AAGENT_CLAUDE_BIN" "tier1" "claude --print PROMPT" "argument-and-stdin" "--model" "json,stream-json" "resume" "Permission modes are native; never add --bare or a bypass." "auth status --json" 2 2
         New-AagentAdapter "opencode" "OpenCode" "opencode" "AAGENT_OPENCODE_BIN" "tier1" "opencode run PROMPT" "argument" "--model" "json-events" "resume,fork" "Native permissions may allow tools; never add --auto." "auth list" 3 3
-        New-AagentAdapter "copilot" "GitHub Copilot CLI" "copilot" "AAGENT_COPILOT_BIN" "planned" "copilot --prompt PROMPT" "argument" "--model" "none" "unknown" "Automatic tool approval is explicitly privileged." "unknown" 4 4
+        New-AagentAdapter "copilot" "GitHub Copilot CLI" "copilot" "AAGENT_COPILOT_BIN" "tier2" "copilot --prompt PROMPT --silent --no-ask-user" "argument" "--model" "jsonl" "resume,continue" "Native tool approvals remain in force; aagent adds no allow-all or yolo flag." "environment precedence only" 4 4
         New-AagentAdapter "gemini" "Gemini CLI" "gemini" "AAGENT_GEMINI_BIN" "tier1" "gemini --prompt PROMPT" "argument-and-stdin" "--model" "json,stream-json" "resume" "Approval and sandbox modes are native; never add yolo." "settings selectedType" 5 5
         New-AagentAdapter "cline" "Cline CLI" "cline" "AAGENT_CLINE_BIN" "planned" "cline PROMPT" "argument" "--model" "ndjson" "unknown" "Headless use documents automatic approval behavior." "unknown" 6 6
         New-AagentAdapter "goose" "Goose" "goose" "AAGENT_GOOSE_BIN" "planned" "goose run --text PROMPT" "argument" "provider-native" "json,stream-json" "unknown" "Headless automation may use GOOSE_MODE=auto only by user choice." "provider metadata" 7 7
@@ -936,11 +936,83 @@ function Invoke-AagentAmpProbe {
     return $result
 }
 
+function Get-AagentCopilotEndpointClass {
+    $endpoint = [Environment]::GetEnvironmentVariable("COPILOT_PROVIDER_BASE_URL", "Process")
+    if ([string]::IsNullOrEmpty($endpoint) -or $endpoint -match '[\s\p{C}]') {
+        return "invalid"
+    }
+    $uri = $null
+    if (
+        -not [Uri]::TryCreate($endpoint, [UriKind]::Absolute, [ref] $uri) -or
+        $uri.Scheme -notin @("http", "https") -or
+        -not [string]::IsNullOrEmpty($uri.UserInfo) -or
+        [string]::IsNullOrEmpty($uri.Host)
+    ) {
+        return "invalid"
+    }
+    if ($uri.Host.Equals("localhost", [StringComparison]::OrdinalIgnoreCase)) {
+        return "local"
+    }
+    $address = $null
+    if ([Net.IPAddress]::TryParse($uri.Host, [ref] $address)) {
+        return $(if ([Net.IPAddress]::IsLoopback($address)) { "local" } else { "remote" })
+    }
+    if (
+        $uri.Host -match '^\d+\.\d+\.\d+\.\d+$' -or $uri.Host.Contains(":") -or
+        $uri.Host.Contains("..") -or $uri.Host.StartsWith(".") -or $uri.Host.EndsWith(".") -or
+        $uri.Host.StartsWith("-") -or $uri.Host.EndsWith("-")
+    ) {
+        return "invalid"
+    }
+    return "remote"
+}
+
+function Invoke-AagentCopilotProbe {
+    $result = New-AagentProbeResult "copilot"
+    if (Test-AagentEnvironmentPresent "COPILOT_PROVIDER_BASE_URL") {
+        $present = Get-AagentPresentEnvironmentNames @(
+            "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE",
+            "COPILOT_PROVIDER_API_KEY", "COPILOT_PROVIDER_BEARER_TOKEN",
+            "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL", "COPILOT_PROVIDER_MODEL_ID",
+            "COPILOT_PROVIDER_WIRE_MODEL"
+        )
+        $endpointClass = Get-AagentCopilotEndpointClass
+        if ($endpointClass -eq "invalid") {
+            Set-AagentProbeResult $result unknown unknown 0 "Unknown" copilot_byok_endpoint_invalid `
+                environment invalid_configuration $present | Out-Null
+        } elseif (
+            (Test-AagentEnvironmentPresent "COPILOT_PROVIDER_API_KEY") -or
+            (Test-AagentEnvironmentPresent "COPILOT_PROVIDER_BEARER_TOKEN")
+        ) {
+            Set-AagentProbeResult $result ready payg_byok 1 "Copilot BYOK" `
+                copilot_byok_credential_environment environment environment_only $present | Out-Null
+        } elseif ($endpointClass -eq "local") {
+            Set-AagentProbeResult $result ready local 1 "Local provider" `
+                copilot_local_byok_environment environment environment_only $present | Out-Null
+        } else {
+            Set-AagentProbeResult $result unknown unknown 1 "Remote BYOK" `
+                copilot_remote_byok_unknown environment environment_only $present | Out-Null
+        }
+        return $result
+    }
+
+    $present = Get-AagentPresentEnvironmentNames @("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
+    if ($present.Count -gt 0) {
+        Set-AagentProbeResult $result ready included_account 1 "GitHub account" `
+            copilot_github_token_environment environment environment_only $present | Out-Null
+    } else {
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" copilot_no_passive_entitlement `
+            none skipped_no_passive | Out-Null
+    }
+    return $result
+}
+
 function Invoke-AagentProviderProbe([string] $Provider, [string] $Executable = "") {
     switch ($Provider) {
         "claude" { return Invoke-AagentClaudeProbe $Executable }
         "codex" { return Invoke-AagentCodexProbe $Executable }
         "opencode" { return Invoke-AagentOpenCodeProbe $Executable }
+        "copilot" { return Invoke-AagentCopilotProbe }
         "gemini" { return Invoke-AagentGeminiProbe }
         "amp" { return Invoke-AagentAmpProbe }
         default {
@@ -1334,7 +1406,7 @@ function Get-AagentDiscovery {
         $target = Resolve-AagentDiscoveryTarget $adapter
         if (-not $target.Found) {
             $status = "missing"
-        } elseif ($adapter.Tier -eq "tier1") {
+        } elseif ($adapter.Tier -in @("tier1", "tier2")) {
             $status = "installed"
         } else {
             $status = "unsupported"
@@ -1609,10 +1681,11 @@ function New-AagentAdapterBuildResult([int] $Status, [string] $Error, $Plan) {
 function Test-AagentUnsafePermissionFlag([string] $Argument) {
     return $Argument -in @(
         "--yolo", "--dangerously-skip-permissions", "--skip-permissions-unsafe",
-        "--allow-all-tools", "--auto", "--force",
+        "--allow-all-tools", "--allow-all-paths", "--allow-all-urls", "--allow-all",
+        "--auto", "--force",
         "--permission-mode=bypassPermissions", "--approval-mode=yolo",
         "--sandbox=danger-full-access"
-    ) -or $Argument -match '^--(yolo|dangerously-skip-permissions|skip-permissions-unsafe|allow-all-tools|auto|force)='
+    ) -or $Argument -match '^--(yolo|dangerously-skip-permissions|skip-permissions-unsafe|allow-all-tools|allow-all-paths|allow-all-urls|allow-all|auto|force)='
 }
 
 function Test-AagentGeneratedAdapterArguments([string[]] $Arguments, [string[]] $DisplayArguments) {
@@ -1718,6 +1791,34 @@ function New-AagentAdapterLaunchPlan($Result, $Adapter, [string] $Executable) {
             $stdinData = ""
             $inputDescription = "argv"
         }
+        "copilot" {
+            $combinedPrompt = switch ($Result.InputMode) {
+                "prompt" { $Result.Prompt }
+                "stdin" { $Result.Stdin }
+                "both" { "$($Result.Prompt)`n`n--- stdin context ---`n$($Result.Stdin)" }
+            }
+            $arguments.Add("--prompt")
+            $displayArguments.Add("--prompt")
+            $arguments.Add($combinedPrompt)
+            $displayArguments.Add("<prompt>")
+            $arguments.Add("--silent")
+            $displayArguments.Add("--silent")
+            $arguments.Add("--no-ask-user")
+            $displayArguments.Add("--no-ask-user")
+            if (-not [string]::IsNullOrEmpty($Result.Model)) {
+                $arguments.Add("--model")
+                $displayArguments.Add("--model")
+                $arguments.Add($Result.Model)
+                $displayArguments.Add("<model>")
+            }
+            foreach ($argument in $Result.NativeArguments) {
+                $arguments.Add($argument)
+                $displayArguments.Add("<native>")
+            }
+            $stdinMode = "closed"
+            $stdinData = ""
+            $inputDescription = "argv"
+        }
         "amp" {
             if (-not [string]::IsNullOrEmpty($Result.Model)) {
                 return New-AagentAdapterBuildResult `
@@ -1803,7 +1904,7 @@ function Invoke-AagentExplicitProvider($Result) {
         )
         return $AagentExitUnavailable
     }
-    if ($adapter.Tier -ne "tier1") {
+    if ($adapter.Tier -notin @("tier1", "tier2")) {
         Write-AagentUsageError "provider adapter is not implemented: $($Result.Provider)"
         return $AagentExitUsage
     }
@@ -1839,7 +1940,7 @@ function Invoke-AagentAutomaticProvider($Result) {
     if ($null -eq $selection.Winner) {
         if ($selection.InstalledCount -eq 0) {
             [Console]::Error.WriteLine(
-                "aagent: no supported coding agent is installed; install a Tier 1 provider or use --provider ID"
+                "aagent: no supported coding agent is installed; install a supported provider or use --provider ID"
             )
         } else {
             [Console]::Error.WriteLine(
@@ -1880,7 +1981,11 @@ function Get-AagentVersionProbe([string] $Provider, [string] $Executable) {
         [string]::IsNullOrEmpty($text) -or $text.Length -gt 128 -or
         $text.Contains("`r") -or $text.Contains("`n") -or
         $text -cnotmatch '^[-A-Za-z0-9._+() ]+$' -or $text -notmatch '[0-9]' -or
-        $text -notmatch "^(v?[0-9]|$([regex]::Escape($Provider))([ -](cli|code))?[ ]+v?[0-9])"
+        $text -notmatch $(if ($Provider -eq "copilot") {
+            '^(v?[0-9]|copilot([ -](cli|code))?[ ]+v?[0-9]|github copilot cli v?[0-9])'
+        } else {
+            "^(v?[0-9]|$([regex]::Escape($Provider))([ -](cli|code))?[ ]+v?[0-9])"
+        })
     ) {
         return [pscustomobject] @{ Version = "unknown"; Status = "unsafe_output" }
     }

@@ -39,7 +39,7 @@ test_dir="$(mktemp -d)"
 original_home="${HOME-}"
 original_xdg_config_home="${XDG_CONFIG_HOME-}"
 original_path="$PATH"
-override_names=(AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_GEMINI_BIN AAGENT_AMP_BIN)
+override_names=(AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_COPILOT_BIN AAGENT_GEMINI_BIN AAGENT_AMP_BIN)
 original_override_values=()
 original_override_sets=()
 for override_name in "${override_names[@]}"; do

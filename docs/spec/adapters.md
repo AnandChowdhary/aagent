@@ -1,6 +1,6 @@
 # Provider adapter registry
 
-Status: Normative registry; Tier 1 is MVP scope
+Status: Normative registry; Tier 1 is MVP scope and implemented Tier 2 entries are runnable
 
 ## Adapter contract
 
@@ -27,8 +27,8 @@ single message argument. Prompt-plus-stdin uses the separator fallback from
 the CLI contract and is likewise passed as one message argument.
 
 The registry is ordered by the versioned popularity/registry snapshot in
-`selection.md`. Tier 1 entries are runnable once their later invocation phases
-land. Planned entries are still discoverable for diagnostics but report
+`selection.md`. Tier 1 and implemented Tier 2 entries are runnable. Planned
+entries are still discoverable for diagnostics but report
 `unsupported` when installed; their presence never makes them an automatic MVP
 candidate.
 
@@ -105,12 +105,35 @@ candidate.
 - Published exit codes include success, general failure, invalid input, and
   turn limit. The wrapper preserves them without interpretation.
 
+## Tier 2: implemented adapters
+
+### GitHub Copilot CLI (`copilot`)
+
+- Invocation: `copilot --prompt PROMPT --silent --no-ask-user`.
+- Model: `--model ID`.
+- Input: Copilot ignores piped input when `--prompt` is present, so stdin-only
+  and prompt-plus-stdin inputs become one prompt argument using the CLI
+  contract separator. The child receives closed stdin.
+- Native output: text, or JSONL with native `--output-format json`. Structured
+  output and session flags remain native options and are not normalized yet.
+- Sessions: native continue/resume capability is recorded as metadata only.
+- Permissions: `--no-ask-user` disables clarification questions but grants no
+  tools. `aagent` adds no `--allow-tool`, `--allow-all*`, or `--yolo` option;
+  native tool approvals and configuration remain in force.
+- Authentication: `COPILOT_PROVIDER_BASE_URL` selects BYOK before GitHub auth.
+  A loopback endpoint without a credential is `local`; a valid endpoint with a
+  documented credential variable is `payg_byok` with the `Copilot BYOK` plan
+  label; remote BYOK without one is funding-unknown. Without BYOK, GitHub
+  token-variable presence is low-
+  confidence `included_account` evidence. Stored OAuth and plan entitlement
+  remain `unknown` because there is no passive status command.
+- Revalidation: [2026-08-05 Copilot CLI](../research/copilot-cli-2026-08-05.md).
+
 ## Tier 2: planned adapters
 
 | ID | Executable and one-shot form | Structured output | Important compatibility note |
 | --- | --- | --- | --- |
 | `droid` | `droid exec PROMPT` | JSON, stream JSON, and JSON-RPC | Read-only spec mode by default; `--auto low/medium/high` grants increasing autonomy. |
-| `copilot` | `copilot --prompt PROMPT --silent --no-ask-user` | text or JSONL with `--output-format json` | Piped input is ignored when `--prompt` is present, so combined input must become one prompt argument. The wrapper adds no permission grant. See the [2026-08-05 revalidation](../research/copilot-cli-2026-08-05.md). |
 | `goose` | `goose run --text PROMPT` | JSON and stream JSON | Headless automation commonly uses `GOOSE_MODE=auto`; provider and model are separately selectable. |
 | `qwen` | `qwen --prompt PROMPT` | JSON and stream JSON | Offers plan/default/auto-edit/auto/yolo approval modes and explicit run budgets. |
 | `kimi` | `kimi --prompt PROMPT` | stream JSON | Print mode uses automatic permission handling and cannot be combined with its interactive `--auto`, `--plan`, or `--yolo` flags. |
@@ -128,7 +151,6 @@ to call the initial implementation complete.
 
 | Provider | Safe evidence | Selector limitation |
 | --- | --- | --- |
-| GitHub Copilot CLI | BYOK override-variable presence and GitHub token-variable presence, without values; there is no passive Copilot entitlement command | BYOK wins over GitHub auth and may be local, metered, or unknown by endpoint/credential class. GitHub token presence is low-confidence account-path evidence; executable presence, `gh auth status`, and inaccessible stored OAuth do not prove entitlement or a plan. |
 | Factory Droid | Account readiness plus selected Factory-managed or BYOK model configuration | Browser login and `FACTORY_API_KEY` both access Factory accounts; neither alone identifies funding. |
 | Goose | Documented nonsecret provider ID | Native Claude/Codex/Cursor adapters inherit the underlying CLI's funding class. `goose info --check` sends a real prompt and is prohibited during selection. |
 | Qwen Code | Coding Plan endpoint and documented auth-selection configuration | A Coding Plan uses an API key but is `included_confirmed`; generic API keys remain provider-specific. |

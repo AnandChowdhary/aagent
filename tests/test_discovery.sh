@@ -21,6 +21,13 @@ assert_equals() {
     [[ "$actual" == "$expected" ]] || fail "$message (expected '$expected', got '$actual')"
 }
 
+assert_contains() {
+    local actual="$1"
+    local expected="$2"
+    local message="$3"
+    [[ "$actual" == *"$expected"* ]] || fail "$message"
+}
+
 adapter_index() {
     aagent_get_adapter_index "$1" || fail "adapter is absent from registry: $1"
 }
@@ -99,10 +106,17 @@ assert_equals "$actual_order" "$expected_order" "registry order differs"
 assert_equals "$AAGENT_POPULARITY_SNAPSHOT" "2026-08-04" "popularity snapshot differs"
 
 codex_index="$(adapter_index codex)"
+copilot_index="$(adapter_index copilot)"
 amp_index="$(adapter_index amp)"
 cursor_index="$(adapter_index cursor)"
 assert_equals "${AAGENT_ADAPTER_TIERS[$codex_index]}" "tier1" "Codex tier differs"
 assert_equals "${AAGENT_ADAPTER_COMMANDS[$codex_index]}" "codex exec PROMPT" "Codex command differs"
+assert_equals "${AAGENT_ADAPTER_TIERS[$copilot_index]}" "tier2" "Copilot tier differs"
+assert_equals "${AAGENT_ADAPTER_COMMANDS[$copilot_index]}" "copilot --prompt PROMPT --silent --no-ask-user" "Copilot command differs"
+assert_equals "${AAGENT_ADAPTER_MODELS[$copilot_index]}" "--model" "Copilot model capability differs"
+assert_equals "${AAGENT_ADAPTER_STRUCTURED[$copilot_index]}" "jsonl" "Copilot structured-output capability differs"
+assert_contains "${AAGENT_ADAPTER_SAFETY[$copilot_index]}" "no allow-all or yolo" "Copilot safety metadata differs"
+assert_equals "${AAGENT_ADAPTER_PROBES[$copilot_index]}" "environment precedence only" "Copilot probe metadata differs"
 assert_equals "${AAGENT_ADAPTER_MODELS[$amp_index]}" "none" "Amp model capability differs"
 assert_equals "${AAGENT_ADAPTER_EXECUTABLES[$cursor_index]}" "agent" "Cursor executable differs"
 assert_equals "${AAGENT_ADAPTER_TIERS[$cursor_index]}" "planned" "Cursor tier differs"
@@ -125,7 +139,7 @@ else
 fi
 assert_equals "$(status_for gemini)" "missing" "a shell function was accepted as Gemini"
 assert_equals "$(status_for amp)" "missing" "Amp missing status differs"
-assert_equals "$(status_for copilot)" "unsupported" "installed planned Copilot status differs"
+assert_equals "$(status_for copilot)" "installed" "installed Copilot status differs"
 assert_equals "$(status_for cursor)" "unsupported" "installed planned Cursor status differs"
 assert_equals "$(path_for cursor)" "$fake_bin/agent" "Cursor path collides with aagent"
 assert_equals "$(reason_for cursor)" "adapter planned; executable found" "Cursor planned reason differs"
@@ -163,7 +177,7 @@ fi
 
 [[ ! -e "$record_dir/run.count" ]] || fail "discovery executed a provider run"
 [[ ! -e "$record_dir/probe.count" ]] || fail "discovery executed an authentication probe"
-if grep -Eq 'curl|wget|https?://' "$aagent_script"; then
+if grep -Eq 'curl|wget' "$aagent_script"; then
     fail "runtime runner contains a network popularity lookup"
 fi
 

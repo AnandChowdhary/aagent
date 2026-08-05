@@ -117,7 +117,11 @@ clear_probe_case() {
         ANTHROPIC_CUSTOM_HEADERS CLAUDE_CODE_OAUTH_TOKEN \
         CODEX_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY \
         GOOGLE_APPLICATION_CREDENTIALS GOOGLE_GENAI_USE_VERTEXAI GOOGLE_GENAI_USE_GCA \
-        GOOGLE_GEMINI_BASE_URL CLOUD_SHELL GEMINI_CLI_USE_COMPUTE_ADC AMP_API_KEY
+        GOOGLE_GEMINI_BASE_URL CLOUD_SHELL GEMINI_CLI_USE_COMPUTE_ADC AMP_API_KEY \
+        COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE COPILOT_PROVIDER_API_KEY \
+        COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS COPILOT_MODEL \
+        COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL \
+        COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
 }
 
 clear_probe_case
@@ -239,6 +243,45 @@ export OPENAI_API_KEY='seeded-secret-token'
 export AAGENT_FAKE_OPENCODE_STATUS=9
 aagent_probe_provider opencode "$fake_bin/opencode"
 assert_probe opencode ready unknown 1 "Provider credential" opencode_environment_auth environment nonzero
+
+clear_probe_case
+copilot_probe_count_before="$(<"$record_dir/probe.count")"
+export COPILOT_PROVIDER_BASE_URL='https://models.example.test/v1'
+export COPILOT_PROVIDER_API_KEY='seeded-secret-token'
+export COPILOT_PROVIDER_HEADERS='Authorization=seeded-secret-token'
+export COPILOT_GITHUB_TOKEN='seeded-secret-token'
+aagent_probe_provider copilot ""
+assert_probe copilot ready payg_byok 1 "Copilot BYOK" copilot_byok_credential_environment environment environment_only
+assert_equals "$AAGENT_PROBE_SHADOWING_VARIABLES" \
+    "COPILOT_PROVIDER_BASE_URL,COPILOT_PROVIDER_API_KEY,COPILOT_PROVIDER_HEADERS" \
+    "Copilot BYOK variable evidence differs"
+
+clear_probe_case
+export COPILOT_PROVIDER_BASE_URL='http://127.0.0.42:11434/v1'
+aagent_probe_provider copilot ""
+assert_probe copilot ready local 1 "Local provider" copilot_local_byok_environment environment environment_only
+
+clear_probe_case
+export COPILOT_PROVIDER_BASE_URL='https://models.example.test/v1'
+aagent_probe_provider copilot ""
+assert_probe copilot unknown unknown 1 "Remote BYOK" copilot_remote_byok_unknown environment environment_only
+
+clear_probe_case
+export COPILOT_PROVIDER_BASE_URL='https://seeded-secret-token@example.test/v1'
+export COPILOT_PROVIDER_HEADERS='Authorization=seeded-secret-token'
+aagent_probe_provider copilot ""
+assert_probe copilot unknown unknown 0 "Unknown" copilot_byok_endpoint_invalid environment invalid_configuration
+
+clear_probe_case
+export GH_TOKEN='seeded-secret-token'
+aagent_probe_provider copilot ""
+assert_probe copilot ready included_account 1 "GitHub account" copilot_github_token_environment environment environment_only
+assert_equals "$AAGENT_PROBE_SHADOWING_VARIABLES" "GH_TOKEN" "Copilot GitHub token evidence differs"
+
+clear_probe_case
+aagent_probe_provider copilot ""
+assert_probe copilot unknown unknown 0 "Unknown" copilot_no_passive_entitlement none skipped_no_passive
+assert_equals "$(<"$record_dir/probe.count")" "$copilot_probe_count_before" "Copilot launched a provider probe"
 
 clear_probe_case
 probe_count_before="$(<"$record_dir/probe.count")"

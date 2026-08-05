@@ -175,17 +175,14 @@ file existence alone is low-confidence evidence and cannot establish a plan.
 | Claude Code | `claude auth status --json`; allowlist `loggedIn`, `authMethod`, `subscriptionType`, `apiProvider`, and `apiKeySource` | `claude.ai` is subscription-backed. Console, direct API, bearer-token, helper, gateway, Bedrock, Vertex, and Foundry paths are metered or cost-unknown. The JSON field schema is an implementation detail, so parsing must tolerate missing fields. |
 | Codex | Start `codex app-server`, initialize it, then call `account/read` with `refreshToken:false`; fall back to `codex login status` | `account.type=chatgpt` is included and may include `planType`; `apiKey` is metered. A custom provider with `requiresOpenaiAuth=false` is funding-unknown. |
 | OpenCode | `opencode auth list` plus the selected provider/model's documented nonsecret config | Credential types include OAuth, API, and well-known sources, but the selected provider determines funding. ChatGPT or Copilot OAuth can be included; OAuth alone is not sufficient. |
+| GitHub Copilot CLI | No CLI probe; documented BYOK and GitHub token variables are checked by presence, with only the BYOK endpoint authority classified | BYOK wins over GitHub auth. Loopback is local, a documented BYOK credential is metered, remote BYOK without one is unknown, and GitHub token presence is at most `included_account`. Stored OAuth does not prove entitlement. |
 | Gemini CLI | `security.auth.selectedType` from documented settings | `oauth-personal` is account-included; `gemini-api-key`, Vertex, and ADC paths are metered or organization-funded. The local signal cannot distinguish Google free, AI Pro/Ultra, or Workspace tiers. |
 | Amp | Installed/account state and `amp usage` when explicitly requested | `AMP_API_KEY` is an Amp account credential, not an Anthropic key. Credential shape cannot distinguish subscription, linked ChatGPT access, credits, or pay-as-you-go, so passive funding is often `unknown`. |
 
-Additional adapters may classify only documented provider/model paths. A
-Copilot BYOK override is classified before GitHub-backed auth; a loopback
-provider may be local and an explicit provider credential may be metered, while
-GitHub token presence is at most low-confidence `included_account` evidence.
-Executable presence, `gh auth status`, and inaccessible stored OAuth do not
-prove Copilot entitlement. Other examples include Qwen's Coding Plan endpoint
-as included, Goose with Ollama as local, and Cline's `openai-codex` provider as
-subscription-backed. Factory, Cursor, Kimi, Crush, and Vibe account keys must
+Additional adapters may classify only documented provider/model paths.
+Examples include Qwen's Coding Plan endpoint as included, Goose with Ollama as
+local, and Cline's `openai-codex` provider as subscription-backed. Factory,
+Cursor, Kimi, Crush, and Vibe account keys must
 not be treated as direct BYOK solely because they are called API keys.
 
 ## Credential persistence boundary

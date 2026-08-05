@@ -94,6 +94,7 @@ provider_overrides=(
     "AAGENT_CLAUDE_BIN=$missing_dir/claude"
     "AAGENT_CODEX_BIN=$missing_dir/codex"
     "AAGENT_OPENCODE_BIN=$missing_dir/opencode"
+    "AAGENT_COPILOT_BIN=$missing_dir/copilot"
     "AAGENT_AMP_BIN=$missing_dir/amp"
     "AAGENT_GEMINI_BIN=$missing_dir/gemini"
 )

@@ -49,10 +49,10 @@ fi
 
 readonly AAGENT_COMPAT_PROVIDER="$1"
 case "$AAGENT_COMPAT_PROVIDER" in
-    claude|codex|opencode|amp|gemini) ;;
+    claude|codex|opencode|copilot|amp|gemini) ;;
     *)
         compat_usage
-        printf 'aagent compatibility: unknown Tier 1 provider: %s\n' "$AAGENT_COMPAT_PROVIDER" >&2
+        printf 'aagent compatibility: unknown supported provider: %s\n' "$AAGENT_COMPAT_PROVIDER" >&2
         exit 64
         ;;
 esac
@@ -101,6 +101,15 @@ case "$AAGENT_COMPAT_PROVIDER" in
         compat_capture auth-help "$AAGENT_COMPAT_EXECUTABLE" auth --help
         compat_require auth-help "$AAGENT_COMPAT_LAST_OUTPUT" "list"
         ;;
+    copilot)
+        compat_capture help "$AAGENT_COMPAT_EXECUTABLE" --help
+        compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--prompt"
+        compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--model"
+        compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--silent"
+        compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--no-ask-user"
+        compat_capture providers-help "$AAGENT_COMPAT_EXECUTABLE" help providers
+        compat_require providers-help "$AAGENT_COMPAT_LAST_OUTPUT" "COPILOT_PROVIDER_BASE_URL"
+        ;;
     amp)
         compat_capture help "$AAGENT_COMPAT_EXECUTABLE" --help
         compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--execute"
@@ -113,4 +122,4 @@ case "$AAGENT_COMPAT_PROVIDER" in
         ;;
 esac
 
-printf 'Tier 1 compatibility check passed for %s.\n' "$AAGENT_COMPAT_PROVIDER"
+printf 'Provider compatibility check passed for %s.\n' "$AAGENT_COMPAT_PROVIDER"

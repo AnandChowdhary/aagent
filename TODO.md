@@ -820,9 +820,16 @@ Deliverable: separately releasable adapter batches using the same contract
   artifact without authentication or a model request. It freezes the P12A-02
   implementation and test contract.
 
-- [ ] **P12A-02 Implement `copilot`.**
+- [x] **P12A-02 Implement `copilot`.**
   Add invocation, input, model, discovery, conservative funding classification,
   safety note, complete fake-adapter matrix, and cross-runner parity.
+
+  Evidence: the Bash and PowerShell registries, launch planners, passive probe
+  classifiers, selectors, diagnostics, and safety audits now implement the
+  frozen Copilot contract. Cross-runner adapter, discovery, probe, selection,
+  introspection, security, and documentation fixtures cover it without a model
+  request; `.github/workflows/compatibility.yml` checks the current official
+  `@github/copilot` help/version surface on a weekly and manual schedule.
 
 - [ ] **P12A-03 Revalidate Cursor CLI.**
   Confirm the `agent` executable, `--print`, model/native options,

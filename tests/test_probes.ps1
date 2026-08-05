@@ -95,7 +95,11 @@ $probeEnvironmentNames = @(
     "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_OAUTH_TOKEN",
     "CODEX_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
     "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA",
-    "GOOGLE_GEMINI_BASE_URL", "CLOUD_SHELL", "GEMINI_CLI_USE_COMPUTE_ADC", "AMP_API_KEY"
+    "GOOGLE_GEMINI_BASE_URL", "CLOUD_SHELL", "GEMINI_CLI_USE_COMPUTE_ADC", "AMP_API_KEY",
+    "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_API_KEY",
+    "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL",
+    "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
+    "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"
 )
 $originalEnvironment = @{}
 foreach ($name in $probeEnvironmentNames) {
@@ -293,6 +297,54 @@ try {
     $result = Invoke-AagentProviderProbe "opencode" (Join-Path $fakeBin "opencode.ps1")
     Assert-ProbeResult $result opencode ready unknown 1 "Provider credential" `
         opencode_environment_auth environment nonzero
+
+    Clear-ProbeCase
+    $copilotProbeCountBefore = [IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()
+    $env:COPILOT_PROVIDER_BASE_URL = "https://models.example.test/v1"
+    $env:COPILOT_PROVIDER_API_KEY = "seeded-secret-token"
+    $env:COPILOT_PROVIDER_HEADERS = "Authorization=seeded-secret-token"
+    $env:COPILOT_GITHUB_TOKEN = "seeded-secret-token"
+    $result = Invoke-AagentProviderProbe "copilot"
+    Assert-ProbeResult $result copilot ready payg_byok 1 "Copilot BYOK" `
+        copilot_byok_credential_environment environment environment_only
+    Assert-ProbeEqual ($result.ShadowingVariables -join ",") `
+        "COPILOT_PROVIDER_BASE_URL,COPILOT_PROVIDER_API_KEY,COPILOT_PROVIDER_HEADERS" `
+        "Copilot BYOK variable evidence differs."
+
+    Clear-ProbeCase
+    $env:COPILOT_PROVIDER_BASE_URL = "http://127.0.0.42:11434/v1"
+    $result = Invoke-AagentProviderProbe "copilot"
+    Assert-ProbeResult $result copilot ready local 1 "Local provider" `
+        copilot_local_byok_environment environment environment_only
+
+    Clear-ProbeCase
+    $env:COPILOT_PROVIDER_BASE_URL = "https://models.example.test/v1"
+    $result = Invoke-AagentProviderProbe "copilot"
+    Assert-ProbeResult $result copilot unknown unknown 1 "Remote BYOK" `
+        copilot_remote_byok_unknown environment environment_only
+
+    Clear-ProbeCase
+    $env:COPILOT_PROVIDER_BASE_URL = "https://seeded-secret-token@example.test/v1"
+    $env:COPILOT_PROVIDER_HEADERS = "Authorization=seeded-secret-token"
+    $result = Invoke-AagentProviderProbe "copilot"
+    Assert-ProbeResult $result copilot unknown unknown 0 "Unknown" `
+        copilot_byok_endpoint_invalid environment invalid_configuration
+
+    Clear-ProbeCase
+    $env:GH_TOKEN = "seeded-secret-token"
+    $result = Invoke-AagentProviderProbe "copilot"
+    Assert-ProbeResult $result copilot ready included_account 1 "GitHub account" `
+        copilot_github_token_environment environment environment_only
+    Assert-ProbeEqual ($result.ShadowingVariables -join ",") "GH_TOKEN" `
+        "Copilot GitHub token evidence differs."
+
+    Clear-ProbeCase
+    $result = Invoke-AagentProviderProbe "copilot"
+    Assert-ProbeResult $result copilot unknown unknown 0 "Unknown" `
+        copilot_no_passive_entitlement none skipped_no_passive
+    Assert-ProbeEqual (
+        [IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()
+    ) $copilotProbeCountBefore "Copilot launched a provider probe."
 
     Clear-ProbeCase
     $probeCountBefore = [IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()

@@ -60,9 +60,10 @@ aagent_initialize_registry() {
     aagent_register_adapter "opencode" "OpenCode" "opencode" "AAGENT_OPENCODE_BIN" "tier1" \
         "opencode run PROMPT" "argument" "--model" "json-events" "resume,fork" \
         "Native permissions may allow tools; never add --auto." "auth list" "3" "3"
-    aagent_register_adapter "copilot" "GitHub Copilot CLI" "copilot" "AAGENT_COPILOT_BIN" "planned" \
-        "copilot --prompt PROMPT" "argument" "--model" "none" "unknown" \
-        "Automatic tool approval is explicitly privileged." "unknown" "4" "4"
+    aagent_register_adapter "copilot" "GitHub Copilot CLI" "copilot" "AAGENT_COPILOT_BIN" "tier2" \
+        "copilot --prompt PROMPT --silent --no-ask-user" "argument" "--model" "jsonl" "resume,continue" \
+        "Native tool approvals remain in force; aagent adds no allow-all or yolo flag." \
+        "environment precedence only" "4" "4"
     aagent_register_adapter "gemini" "Gemini CLI" "gemini" "AAGENT_GEMINI_BIN" "tier1" \
         "gemini --prompt PROMPT" "argument-and-stdin" "--model" "json,stream-json" "resume" \
         "Approval and sandbox modes are native; never add yolo." "settings selectedType" "5" "5"
@@ -1254,6 +1255,115 @@ aagent_probe_amp() {
     fi
 }
 
+aagent_classify_copilot_endpoint() {
+    local endpoint="${COPILOT_PROVIDER_BASE_URL-}"
+    local lower=""
+    local remainder=""
+    local authority=""
+    local host=""
+    local port=""
+    local port_number=0
+    local octet=""
+    local -a octets=()
+
+    AAGENT_COPILOT_ENDPOINT_CLASS="invalid"
+    [[ -n "$endpoint" && ! "$endpoint" =~ [[:space:][:cntrl:]] ]] || return 0
+    lower="$(aagent_ascii_lower "$endpoint")"
+    case "$lower" in
+        http://*|https://*) ;;
+        *) return 0 ;;
+    esac
+    remainder="${endpoint#*://}"
+    authority="${remainder%%[/?#]*}"
+    [[ -n "$authority" && "$authority" != *"@"* ]] || return 0
+
+    if [[ "$authority" == \[* ]]; then
+        if [[ "$authority" =~ ^\[([0-9A-Fa-f:]+)\](:([0-9]+))?$ ]]; then
+            host="${BASH_REMATCH[1]}"
+            port="${BASH_REMATCH[3]}"
+        else
+            return 0
+        fi
+    elif [[ "$authority" == *:* ]]; then
+        [[ "$authority" != *:*:* ]] || return 0
+        host="${authority%%:*}"
+        port="${authority#*:}"
+        [[ -n "$port" && "$port" =~ ^[0-9]+$ ]] || return 0
+    else
+        host="$authority"
+    fi
+    if [[ -n "$port" ]]; then
+        (( ${#port} <= 5 )) || return 0
+        port_number=$((10#$port))
+        (( port_number >= 1 && port_number <= 65535 )) || return 0
+    fi
+    host="$(aagent_ascii_lower "$host")"
+
+    if [[ "$host" == "localhost" || "$host" == "::1" || "$host" == "0:0:0:0:0:0:0:1" ]]; then
+        AAGENT_COPILOT_ENDPOINT_CLASS="local"
+        return 0
+    fi
+    if [[ "$host" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        octets=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}")
+        for octet in "${octets[@]}"; do
+            (( ${#octet} <= 3 )) || return 0
+            (( 10#$octet <= 255 )) || return 0
+        done
+        if (( 10#${octets[0]} == 127 )); then
+            AAGENT_COPILOT_ENDPOINT_CLASS="local"
+        else
+            AAGENT_COPILOT_ENDPOINT_CLASS="remote"
+        fi
+        return 0
+    fi
+    if [[ "$host" =~ ^[A-Za-z0-9.-]+$ || "$host" =~ ^[0-9a-f:]+$ ]]; then
+        [[ "$host" != .* && "$host" != *. && "$host" != -* && "$host" != *- && \
+            "$host" != *..* ]] || return 0
+        AAGENT_COPILOT_ENDPOINT_CLASS="remote"
+    fi
+}
+
+aagent_probe_copilot() {
+    local byok_environment_names=""
+    local github_environment_names=""
+
+    aagent_reset_probe_result copilot
+    if aagent_environment_has COPILOT_PROVIDER_BASE_URL; then
+        aagent_classify_copilot_endpoint
+        aagent_collect_present_environment_names \
+            COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE \
+            COPILOT_PROVIDER_API_KEY COPILOT_PROVIDER_BEARER_TOKEN \
+            COPILOT_PROVIDER_HEADERS COPILOT_MODEL COPILOT_PROVIDER_MODEL_ID \
+            COPILOT_PROVIDER_WIRE_MODEL
+        byok_environment_names="$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+        if [[ "$AAGENT_COPILOT_ENDPOINT_CLASS" == "invalid" ]]; then
+            aagent_set_probe_result unknown unknown 0 "Unknown" copilot_byok_endpoint_invalid \
+                environment invalid_configuration "$byok_environment_names"
+        elif aagent_environment_has COPILOT_PROVIDER_API_KEY || \
+            aagent_environment_has COPILOT_PROVIDER_BEARER_TOKEN; then
+            aagent_set_probe_result ready payg_byok 1 "Copilot BYOK" copilot_byok_credential_environment \
+                environment environment_only "$byok_environment_names"
+        elif [[ "$AAGENT_COPILOT_ENDPOINT_CLASS" == "local" ]]; then
+            aagent_set_probe_result ready local 1 "Local provider" copilot_local_byok_environment \
+                environment environment_only "$byok_environment_names"
+        else
+            aagent_set_probe_result unknown unknown 1 "Remote BYOK" copilot_remote_byok_unknown \
+                environment environment_only "$byok_environment_names"
+        fi
+        return 0
+    fi
+
+    aagent_collect_present_environment_names COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
+    github_environment_names="$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+    if [[ -n "$github_environment_names" ]]; then
+        aagent_set_probe_result ready included_account 1 "GitHub account" copilot_github_token_environment \
+            environment environment_only "$github_environment_names"
+    else
+        aagent_set_probe_result unknown unknown 0 "Unknown" copilot_no_passive_entitlement \
+            none skipped_no_passive
+    fi
+}
+
 aagent_probe_provider() {
     local provider="$1"
     local executable="$2"
@@ -1261,6 +1371,7 @@ aagent_probe_provider() {
         claude) aagent_probe_claude "$executable" ;;
         codex) aagent_probe_codex "$executable" ;;
         opencode) aagent_probe_opencode "$executable" ;;
+        copilot) aagent_probe_copilot ;;
         gemini) aagent_probe_gemini ;;
         amp) aagent_probe_amp ;;
         *)
@@ -1687,7 +1798,8 @@ aagent_discover_adapters() {
         if aagent_resolve_discovery_target \
             "${AAGENT_ADAPTER_EXECUTABLES[$index]}" \
             "${AAGENT_ADAPTER_OVERRIDES[$index]}"; then
-            if [[ "${AAGENT_ADAPTER_TIERS[$index]}" == "tier1" ]]; then
+            if [[ "${AAGENT_ADAPTER_TIERS[$index]}" == "tier1" || \
+                "${AAGENT_ADAPTER_TIERS[$index]}" == "tier2" ]]; then
                 status="installed"
             else
                 status="unsupported"
@@ -1994,7 +2106,9 @@ aagent_is_unsafe_permission_flag() {
     case "$1" in
         --yolo|--yolo=*|--dangerously-skip-permissions|--dangerously-skip-permissions=*|\
         --skip-permissions-unsafe|--skip-permissions-unsafe=*|--allow-all-tools|\
-        --allow-all-tools=*|--auto|--auto=*|--force|--force=*|\
+        --allow-all-tools=*|--allow-all-paths|--allow-all-paths=*|\
+        --allow-all-urls|--allow-all-urls=*|--allow-all|--allow-all=*|\
+        --auto|--auto=*|--force|--force=*|\
         --permission-mode=bypassPermissions|--approval-mode=yolo|\
         --sandbox=danger-full-access)
             return 0
@@ -2110,6 +2224,28 @@ aagent_build_adapter_launch_plan() {
             AAGENT_ADAPTER_STDIN_DATA=""
             AAGENT_ADAPTER_INPUT_DESCRIPTION="argv"
             ;;
+        copilot)
+            case "$AAGENT_INPUT_MODE" in
+                prompt)
+                    combined_prompt="$AAGENT_PROMPT"
+                    ;;
+                stdin)
+                    combined_prompt="$AAGENT_STDIN"
+                    ;;
+                both)
+                    combined_prompt="$AAGENT_PROMPT"$'\n\n--- stdin context ---\n'"$AAGENT_STDIN"
+                    ;;
+            esac
+            aagent_append_adapter_argument "--prompt" "--prompt"
+            aagent_append_adapter_argument "$combined_prompt" "<prompt>"
+            aagent_append_adapter_argument "--silent" "--silent"
+            aagent_append_adapter_argument "--no-ask-user" "--no-ask-user"
+            aagent_append_model_argument "--model"
+            aagent_append_native_arguments
+            AAGENT_ADAPTER_STDIN_MODE="closed"
+            AAGENT_ADAPTER_STDIN_DATA=""
+            AAGENT_ADAPTER_INPUT_DESCRIPTION="argv"
+            ;;
         amp)
             if [[ -n "$AAGENT_MODEL" ]]; then
                 AAGENT_ADAPTER_ERROR="provider amp does not support --model"
@@ -2170,7 +2306,8 @@ aagent_run_explicit_provider() {
             "$provider" "$AAGENT_PROVIDER_SOURCE_LABEL" "$AAGENT_DISCOVERY_REASON" >&2
         return "$AAGENT_EXIT_UNAVAILABLE"
     fi
-    if [[ "${AAGENT_ADAPTER_TIERS[$index]}" != "tier1" ]]; then
+    if [[ "${AAGENT_ADAPTER_TIERS[$index]}" != "tier1" && \
+        "${AAGENT_ADAPTER_TIERS[$index]}" != "tier2" ]]; then
         aagent_print_usage_error "provider adapter is not implemented: $provider"
         return "$AAGENT_EXIT_USAGE"
     fi
@@ -2216,7 +2353,7 @@ aagent_run_automatic_provider() {
     aagent_build_automatic_candidates
     if ! aagent_select_candidates; then
         if (( AAGENT_SELECTION_INSTALLED_COUNT == 0 )); then
-            printf 'aagent: no supported coding agent is installed; install a Tier 1 provider or use --provider ID\n' >&2
+            printf 'aagent: no supported coding agent is installed; install a supported provider or use --provider ID\n' >&2
         else
             printf 'aagent: no installed provider is eligible for automatic selection; use --provider ID or adjust configuration\n' >&2
         fi
@@ -2283,7 +2420,11 @@ aagent_probe_version() {
         return 0
     fi
     lower_text="$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')"
-    prefix_pattern="^(v?[0-9]|${provider}([ -](cli|code))?[ ]+v?[0-9])"
+    if [[ "$provider" == "copilot" ]]; then
+        prefix_pattern='^(v?[0-9]|copilot([ -](cli|code))?[ ]+v?[0-9]|github copilot cli v?[0-9])'
+    else
+        prefix_pattern="^(v?[0-9]|${provider}([ -](cli|code))?[ ]+v?[0-9])"
+    fi
     if [[ ! "$lower_text" =~ $prefix_pattern ]]; then
         AAGENT_VERSION_REASON="unsafe_output"
         return 0

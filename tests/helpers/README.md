@@ -1,7 +1,7 @@
 # Fake provider protocol
 
 The Bash and PowerShell test entrypoints copy `fake-provider.sh` or
-`fake-provider.ps1` under each Tier 1 executable name. These fixtures never
+`fake-provider.ps1` under each supported provider executable name. These fixtures never
 contact a provider, read provider configuration, or require credentials.
 
 `AAGENT_FAKE_RECORD_DIR` selects the output directory. Each invocation creates
