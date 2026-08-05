@@ -35,6 +35,11 @@ for release_asset in aagent.sh aagent.ps1 install.sh install.ps1; do
     assert_equals "$(sha256_file "$project_root/$release_asset")" "$expected_release_checksum" \
         "repository checksum differs for $release_asset"
 done
+crlf_checksum_file="$(mktemp)"
+printf '%s  aagent.sh\r\n' "$(sha256_file "$aagent_script")" >"$crlf_checksum_file"
+assert_equals "$(aagent_installer_expected_checksum "$crlf_checksum_file" aagent.sh)" \
+    "$(sha256_file "$aagent_script")" "CRLF checksum parsing differs"
+rm -f "$crlf_checksum_file"
 
 test_dir="$(mktemp -d)"
 original_path="$PATH"

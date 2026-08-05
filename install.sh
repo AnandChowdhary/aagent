@@ -20,6 +20,9 @@ aagent_installer_expected_checksum() {
     local checksum filename extra expected=""
 
     while IFS=' ' read -r checksum filename extra; do
+        checksum="${checksum%$'\r'}"
+        filename="${filename%$'\r'}"
+        extra="${extra%$'\r'}"
         [[ -z "$extra" ]] || continue
         filename="${filename#\*}"
         if [[ "$filename" == "$asset_name" && "$checksum" =~ ^[0-9A-Fa-f]{64}$ ]]; then
