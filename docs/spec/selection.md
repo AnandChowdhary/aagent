@@ -178,9 +178,13 @@ file existence alone is low-confidence evidence and cannot establish a plan.
 | Gemini CLI | `security.auth.selectedType` from documented settings | `oauth-personal` is account-included; `gemini-api-key`, Vertex, and ADC paths are metered or organization-funded. The local signal cannot distinguish Google free, AI Pro/Ultra, or Workspace tiers. |
 | Amp | Installed/account state and `amp usage` when explicitly requested | `AMP_API_KEY` is an Amp account credential, not an Anthropic key. Credential shape cannot distinguish subscription, linked ChatGPT access, credits, or pay-as-you-go, so passive funding is often `unknown`. |
 
-Additional adapters may classify only documented provider/model paths. Examples
-include Copilot without BYOK as account-included, Qwen's Coding Plan endpoint as
-included, Goose with Ollama as local, and Cline's `openai-codex` provider as
+Additional adapters may classify only documented provider/model paths. A
+Copilot BYOK override is classified before GitHub-backed auth; a loopback
+provider may be local and an explicit provider credential may be metered, while
+GitHub token presence is at most low-confidence `included_account` evidence.
+Executable presence, `gh auth status`, and inaccessible stored OAuth do not
+prove Copilot entitlement. Other examples include Qwen's Coding Plan endpoint
+as included, Goose with Ollama as local, and Cline's `openai-codex` provider as
 subscription-backed. Factory, Cursor, Kimi, Crush, and Vibe account keys must
 not be treated as direct BYOK solely because they are called API keys.
 

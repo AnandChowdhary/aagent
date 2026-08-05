@@ -79,6 +79,10 @@ paid model request:
 - OpenCode documents `opencode auth list`, but its credential type must be
   combined with the selected model/provider. OAuth alone is not a universal
   subscription signal.
+- Copilot CLI documents GitHub token precedence and explicit BYOK provider
+  overrides, but exposes no passive entitlement command. Token-variable
+  presence is low-confidence account-path evidence; executable presence,
+  `gh auth status`, and inaccessible stored OAuth remain funding-unknown.
 - Cursor exposes an authentication status command, although its plan tier is
   not reported.
 

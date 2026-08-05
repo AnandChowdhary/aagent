@@ -1,6 +1,9 @@
 # Primary research sources
 
-Research snapshot: 2026-08-04
+Initial research snapshot: 2026-08-04
+
+Provider-specific refreshes are dated separately. The current Copilot CLI
+evidence is the [2026-08-05 revalidation](../research/copilot-cli-2026-08-05.md).
 
 Only first-party documentation, repositories, and package/download APIs were
 used for the interface and selection survey.
@@ -29,7 +32,13 @@ used for the interface and selection survey.
   [BYOK](https://docs.factory.ai/model-independence/byok),
   [pricing](https://docs.factory.ai/pricing/individuals)
 - GitHub Copilot CLI: [official repository](https://github.com/github/copilot-cli),
+  [programmatic execution](https://docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/run-cli-programmatically),
+  [programmatic reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-programmatic-reference),
+  [command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference),
   [authentication](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/authenticate-copilot-cli),
+  [BYOK](https://docs.github.com/en/enterprise-cloud@latest/copilot/how-tos/copilot-cli/customize-copilot/use-byok-models),
+  [permissions](https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/allowing-tools),
+  [v1.0.78 release](https://github.com/github/copilot-cli/releases/tag/v1.0.78),
   [billing usage API](https://docs.github.com/en/rest/billing/usage)
 - Goose: [running tasks](https://goose-docs.ai/docs/guides/running-tasks/),
   [headless tutorial](https://goose-docs.ai/docs/tutorials/headless-goose/),

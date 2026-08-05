@@ -110,7 +110,7 @@ candidate.
 | ID | Executable and one-shot form | Structured output | Important compatibility note |
 | --- | --- | --- | --- |
 | `droid` | `droid exec PROMPT` | JSON, stream JSON, and JSON-RPC | Read-only spec mode by default; `--auto low/medium/high` grants increasing autonomy. |
-| `copilot` | `copilot --prompt PROMPT` | no documented stable event format | Supports model and tool allow/deny flags; automatic tool approval is explicitly privileged. |
+| `copilot` | `copilot --prompt PROMPT --silent --no-ask-user` | text or JSONL with `--output-format json` | Piped input is ignored when `--prompt` is present, so combined input must become one prompt argument. The wrapper adds no permission grant. See the [2026-08-05 revalidation](../research/copilot-cli-2026-08-05.md). |
 | `goose` | `goose run --text PROMPT` | JSON and stream JSON | Headless automation commonly uses `GOOSE_MODE=auto`; provider and model are separately selectable. |
 | `qwen` | `qwen --prompt PROMPT` | JSON and stream JSON | Offers plan/default/auto-edit/auto/yolo approval modes and explicit run budgets. |
 | `kimi` | `kimi --prompt PROMPT` | stream JSON | Print mode uses automatic permission handling and cannot be combined with its interactive `--auto`, `--plan`, or `--yolo` flags. |
@@ -128,7 +128,7 @@ to call the initial implementation complete.
 
 | Provider | Safe evidence | Selector limitation |
 | --- | --- | --- |
-| GitHub Copilot CLI | GitHub login/token availability plus absence of active BYOK provider overrides | A GitHub PAT can authenticate an included Copilot seat; token shape does not imply BYOK. GitHub login alone does not prove Copilot entitlement. |
+| GitHub Copilot CLI | BYOK override-variable presence and GitHub token-variable presence, without values; there is no passive Copilot entitlement command | BYOK wins over GitHub auth and may be local, metered, or unknown by endpoint/credential class. GitHub token presence is low-confidence account-path evidence; executable presence, `gh auth status`, and inaccessible stored OAuth do not prove entitlement or a plan. |
 | Factory Droid | Account readiness plus selected Factory-managed or BYOK model configuration | Browser login and `FACTORY_API_KEY` both access Factory accounts; neither alone identifies funding. |
 | Goose | Documented nonsecret provider ID | Native Claude/Codex/Cursor adapters inherit the underlying CLI's funding class. `goose info --check` sends a real prompt and is prohibited during selection. |
 | Qwen Code | Coding Plan endpoint and documented auth-selection configuration | A Coding Plan uses an API key but is `included_confirmed`; generic API keys remain provider-specific. |

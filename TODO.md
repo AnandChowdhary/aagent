@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: MVP released; Phase 12 and later deferred
+Current milestone: Phase 12 Tier 2 adapters
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -811,9 +811,14 @@ Deliverable: separately releasable adapter batches using the same contract
 
 ### Phase 12A - Account-backed and name-collision adapters
 
-- [ ] **P12A-01 Revalidate GitHub Copilot CLI.**
+- [x] **P12A-01 Revalidate GitHub Copilot CLI.**
   Confirm current one-shot syntax, model behavior, auth/status evidence, BYOK
   overrides, permission flags, and exit behavior; update sources before code.
+
+  Evidence: [2026-08-05 Copilot CLI revalidation](docs/research/copilot-cli-2026-08-05.md)
+  verifies the current first-party documentation and checksummed v1.0.78
+  artifact without authentication or a model request. It freezes the P12A-02
+  implementation and test contract.
 
 - [ ] **P12A-02 Implement `copilot`.**
   Add invocation, input, model, discovery, conservative funding classification,
