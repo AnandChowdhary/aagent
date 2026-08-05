@@ -124,6 +124,24 @@ run_installer "$test_dir/remote" \
 assert_equals "$AAGENT_TEST_STATUS" 0 "checksummed remote Bash install failed"
 assert_equals "$("$install_dir/aagent" --version)" "aagent 0.1.0" "remote installed version differs"
 
+if command -v cygpath >/dev/null 2>&1; then
+    posix_windows_install_dir="$test_dir/windows native install/bin"
+    windows_install_dir="$(cygpath -w "$posix_windows_install_dir")"
+    windows_remote_dir="$(cygpath -m "$remote_dir")"
+    previous_install_dir="$install_dir"
+    install_dir="$windows_install_dir"
+    run_installer "$test_dir/windows-native-path" \
+        PATH="$original_path" \
+        AAGENT_SOURCE="file:///$windows_remote_dir/aagent.sh" \
+        AAGENT_CHECKSUM_SOURCE="file:///$windows_remote_dir/SHA256SUMS" \
+        AAGENT_EXPECTED_VERSION=0.1.0
+    assert_equals "$AAGENT_TEST_STATUS" 0 \
+        "checksummed remote Bash install with a native Windows path failed"
+    assert_equals "$("$posix_windows_install_dir/aagent" --version)" "aagent 0.1.0" \
+        "native Windows path installed version differs"
+    install_dir="$previous_install_dir"
+fi
+
 cp "$install_dir/aagent" "$test_dir/remote-known-good"
 printf '%064d  aagent.sh\n' 0 >"$remote_dir/SHA256SUMS"
 run_installer "$test_dir/bad-checksum" \
