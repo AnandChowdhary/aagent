@@ -97,8 +97,8 @@ aagent_initialize_registry() {
     aagent_register_adapter "kiro" "Kiro CLI" "kiro-cli" "AAGENT_KIRO_BIN" "planned" \
         "kiro-cli chat --no-interactive PROMPT" "argument" "provider-native" "none" "unknown" \
         "Trust flags control pre-approved tools and remain explicit." "unknown" "15" "15"
-    aagent_register_adapter "cursor" "Cursor CLI" "agent" "AAGENT_CURSOR_BIN" "planned" \
-        "agent --print PROMPT" "argument" "--model" "json,stream-json" "resume" \
+    aagent_register_adapter "cursor" "Cursor CLI" "agent" "AAGENT_CURSOR_BIN" "tier2" \
+        "agent --print --output-format text PROMPT" "argument" "--model" "json,stream-json" "resume" \
         "Changes are proposed unless the user explicitly forces them." "status --format json" "16" "16"
 }
 
@@ -1364,6 +1364,177 @@ aagent_probe_copilot() {
     fi
 }
 
+aagent_classify_cursor_endpoint() {
+    local endpoint="$1"
+    local lower=""
+    local remainder=""
+    local authority=""
+    local host=""
+    local port=""
+    local port_number=0
+    local octet=""
+    local -a octets=()
+
+    AAGENT_CURSOR_ENDPOINT_CLASS="invalid"
+    [[ -n "$endpoint" && ! "$endpoint" =~ [[:space:][:cntrl:]] ]] || return 0
+    lower="$(aagent_ascii_lower "$endpoint")"
+    case "$lower" in
+        http://*|https://*) ;;
+        *) return 0 ;;
+    esac
+    remainder="${endpoint#*://}"
+    authority="${remainder%%[/?#]*}"
+    [[ -n "$authority" && "$authority" != *"@"* ]] || return 0
+
+    if [[ "$authority" == \[* ]]; then
+        if [[ "$authority" =~ ^\[([0-9A-Fa-f:]+)\](:([0-9]+))?$ ]]; then
+            host="${BASH_REMATCH[1]}"
+            port="${BASH_REMATCH[3]}"
+        else
+            return 0
+        fi
+    elif [[ "$authority" == *:* ]]; then
+        [[ "$authority" != *:*:* ]] || return 0
+        host="${authority%%:*}"
+        port="${authority#*:}"
+        [[ -n "$port" && "$port" =~ ^[0-9]+$ ]] || return 0
+    else
+        host="$authority"
+    fi
+    if [[ -n "$port" ]]; then
+        (( ${#port} <= 5 )) || return 0
+        port_number=$((10#$port))
+        (( port_number >= 1 && port_number <= 65535 )) || return 0
+    fi
+    host="$(aagent_ascii_lower "$host")"
+
+    if [[ "$host" == "localhost" || "$host" == "::1" || "$host" == "0:0:0:0:0:0:0:1" ]]; then
+        AAGENT_CURSOR_ENDPOINT_CLASS="local"
+        return 0
+    fi
+    if [[ "$host" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        octets=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}")
+        for octet in "${octets[@]}"; do
+            (( ${#octet} <= 3 )) || return 0
+            (( 10#$octet <= 255 )) || return 0
+        done
+        if (( 10#${octets[0]} == 127 )); then
+            AAGENT_CURSOR_ENDPOINT_CLASS="local"
+        else
+            AAGENT_CURSOR_ENDPOINT_CLASS="custom"
+        fi
+        return 0
+    fi
+    if [[ "$host" =~ ^[A-Za-z0-9.-]+$ || "$host" =~ ^[0-9a-f:]+$ ]]; then
+        [[ "$host" != .* && "$host" != *. && "$host" != -* && "$host" != *- && \
+            "$host" != *..* ]] || return 0
+        case "$host" in
+            cursor.com|*.cursor.com|cursor.sh|*.cursor.sh)
+                AAGENT_CURSOR_ENDPOINT_CLASS="vendor"
+                ;;
+            *)
+                AAGENT_CURSOR_ENDPOINT_CLASS="custom"
+                ;;
+        esac
+    fi
+}
+
+aagent_probe_cursor() {
+    local executable="$1"
+    local authenticated_path access_path refresh_path endpoint_path
+    local authenticated="" authenticated_type=""
+    local access="" access_type=""
+    local refresh="" refresh_type=""
+    local endpoint="" endpoint_type="missing"
+
+    aagent_reset_probe_result cursor
+    if aagent_environment_has CURSOR_API_KEY; then
+        aagent_set_probe_result ready included_account 1 "Cursor account" \
+            cursor_api_key_environment environment environment_only CURSOR_API_KEY
+        return 0
+    fi
+
+    aagent_run_probe_process "$executable" "" stdout 0 status --format json
+    if [[ "$AAGENT_PROBE_PROCESS_STATUS" != "success" ]]; then
+        aagent_set_probe_result unknown unknown 0 "Unknown" cursor_probe_failed \
+            auth_status "$AAGENT_PROBE_PROCESS_STATUS"
+        AAGENT_PROBE_CAPTURE=""
+        return 0
+    fi
+
+    authenticated_path="$(aagent_json_make_path isAuthenticated)"
+    access_path="$(aagent_json_make_path hasAccessToken)"
+    refresh_path="$(aagent_json_make_path hasRefreshToken)"
+    endpoint_path="$(aagent_json_make_path endpoint)"
+    if ! aagent_json_parse_document "$AAGENT_PROBE_CAPTURE" \
+        "$authenticated_path" "$access_path" "$refresh_path" "$endpoint_path"; then
+        AAGENT_PROBE_CAPTURE=""
+        aagent_set_probe_result unknown unknown 0 "Unknown" cursor_schema_failure \
+            auth_status schema_failure
+        return 0
+    fi
+    AAGENT_PROBE_CAPTURE=""
+
+    if aagent_json_get "$authenticated_path"; then
+        authenticated="$AAGENT_JSON_VALUE"
+        authenticated_type="$AAGENT_JSON_TYPE"
+    fi
+    if aagent_json_get "$access_path"; then
+        access="$AAGENT_JSON_VALUE"
+        access_type="$AAGENT_JSON_TYPE"
+    fi
+    if aagent_json_get "$refresh_path"; then
+        refresh="$AAGENT_JSON_VALUE"
+        refresh_type="$AAGENT_JSON_TYPE"
+    fi
+    if aagent_json_get "$endpoint_path"; then
+        endpoint="$AAGENT_JSON_VALUE"
+        endpoint_type="$AAGENT_JSON_TYPE"
+    fi
+
+    if [[ "$authenticated_type" != "bool" || "$access_type" != "bool" || \
+        "$refresh_type" != "bool" || ( "$endpoint_type" != "missing" && "$endpoint_type" != "string" ) ]]; then
+        aagent_set_probe_result unknown unknown 0 "Unknown" cursor_schema_failure \
+            auth_status schema_failure
+        return 0
+    fi
+    if [[ "$authenticated" == "false" ]]; then
+        aagent_set_probe_result unusable unknown 3 "Not signed in" cursor_not_authenticated \
+            auth_status success
+        return 0
+    fi
+    if [[ "$access" != "true" || "$refresh" != "true" ]]; then
+        aagent_set_probe_result unknown unknown 0 "Unknown" cursor_schema_failure \
+            auth_status schema_failure
+        return 0
+    fi
+
+    if [[ "$endpoint_type" == "string" ]]; then
+        aagent_classify_cursor_endpoint "$endpoint"
+        case "$AAGENT_CURSOR_ENDPOINT_CLASS" in
+            invalid)
+                aagent_set_probe_result unknown unknown 0 "Unknown" cursor_endpoint_invalid \
+                    auth_status invalid_configuration
+                ;;
+            local)
+                aagent_set_probe_result ready local 3 "Local provider" cursor_authenticated_local \
+                    auth_status success
+                ;;
+            custom)
+                aagent_set_probe_result ready unknown 3 "Custom provider" cursor_authenticated_custom \
+                    auth_status success
+                ;;
+            vendor)
+                aagent_set_probe_result ready included_account 3 "Cursor account" \
+                    cursor_authenticated_status auth_status success
+                ;;
+        esac
+    else
+        aagent_set_probe_result ready included_account 3 "Cursor account" \
+            cursor_authenticated_status auth_status success
+    fi
+}
+
 aagent_probe_provider() {
     local provider="$1"
     local executable="$2"
@@ -1374,6 +1545,7 @@ aagent_probe_provider() {
         copilot) aagent_probe_copilot ;;
         gemini) aagent_probe_gemini ;;
         amp) aagent_probe_amp ;;
+        cursor) aagent_probe_cursor "$executable" ;;
         *)
             aagent_reset_probe_result "$provider"
             aagent_set_probe_result unknown unknown 0 "Unknown" unsupported_probe none unsupported
@@ -1785,6 +1957,79 @@ aagent_resolve_discovery_target() {
     AAGENT_DISCOVERY_REASON="executable found"
 }
 
+aagent_cursor_signature_matches() {
+    local candidate="$1"
+    local version=""
+    local help=""
+
+    aagent_run_probe_process "$candidate" "" stdout 0 --version
+    [[ "$AAGENT_PROBE_PROCESS_STATUS" == "success" ]] || {
+        AAGENT_PROBE_CAPTURE=""
+        return 1
+    }
+    version="$AAGENT_PROBE_CAPTURE"
+    AAGENT_PROBE_CAPTURE=""
+    [[ -n "$version" && ${#version} -le 128 && "$version" != *$'\n'* && \
+        "$version" != *$'\r'* && "$version" =~ [0-9] && \
+        "$version" =~ ^[-A-Za-z0-9._+]+$ ]] || return 1
+
+    aagent_run_probe_process "$candidate" "" stdout 0 --help
+    [[ "$AAGENT_PROBE_PROCESS_STATUS" == "success" ]] || {
+        AAGENT_PROBE_CAPTURE=""
+        return 1
+    }
+    help="$AAGENT_PROBE_CAPTURE"
+    AAGENT_PROBE_CAPTURE=""
+    [[ "$help" == *"Start the Cursor Agent"* && "$help" == *"--print"* && \
+        "$help" == *"status"* ]]
+}
+
+aagent_resolve_cursor_discovery_target() {
+    local override_name="AAGENT_CURSOR_BIN"
+    local requested=""
+    local candidate=""
+    local -a requested_names=(agent cursor-agent)
+
+    if [[ -n "${!override_name-}" ]]; then
+        requested_names=("${!override_name}")
+        AAGENT_DISCOVERY_SOURCE="override"
+    else
+        AAGENT_DISCOVERY_SOURCE="path"
+    fi
+
+    for requested in "${requested_names[@]}"; do
+        if [[ "$requested" == */* ]]; then
+            candidate="$requested"
+        else
+            candidate="$(type -P "$requested" 2>/dev/null || true)"
+        fi
+        [[ -n "$candidate" && -f "$candidate" && -x "$candidate" ]] || continue
+        if [[ -e "${BASH_SOURCE[0]}" && "$candidate" -ef "${BASH_SOURCE[0]}" ]]; then
+            continue
+        fi
+        if aagent_cursor_signature_matches "$candidate"; then
+            AAGENT_RESOLVED_PATH="$candidate"
+            if [[ "$AAGENT_DISCOVERY_SOURCE" == "path" && "$requested" == "cursor-agent" ]]; then
+                AAGENT_DISCOVERY_REASON="Cursor CLI signature found via legacy cursor-agent"
+            else
+                AAGENT_DISCOVERY_REASON="Cursor CLI signature found"
+            fi
+            return 0
+        fi
+        if [[ "$AAGENT_DISCOVERY_SOURCE" == "override" ]]; then
+            break
+        fi
+    done
+
+    AAGENT_RESOLVED_PATH=""
+    if [[ "$AAGENT_DISCOVERY_SOURCE" == "override" ]]; then
+        AAGENT_DISCOVERY_REASON="invalid Cursor CLI executable override: $override_name"
+    else
+        AAGENT_DISCOVERY_REASON="Cursor CLI executable missing or signature mismatch"
+    fi
+    return "$AAGENT_EXIT_UNAVAILABLE"
+}
+
 aagent_discover_adapters() {
     aagent_initialize_registry
     AAGENT_DISCOVERY_STATUSES=()
@@ -1795,9 +2040,14 @@ aagent_discover_adapters() {
     local index
     local status
     for ((index = 0; index < ${#AAGENT_ADAPTER_IDS[@]}; index++)); do
-        if aagent_resolve_discovery_target \
-            "${AAGENT_ADAPTER_EXECUTABLES[$index]}" \
-            "${AAGENT_ADAPTER_OVERRIDES[$index]}"; then
+        if [[ "${AAGENT_ADAPTER_IDS[$index]}" == "cursor" ]]; then
+            if aagent_resolve_cursor_discovery_target; then status=0; else status=$?; fi
+        else
+            if aagent_resolve_discovery_target \
+                "${AAGENT_ADAPTER_EXECUTABLES[$index]}" \
+                "${AAGENT_ADAPTER_OVERRIDES[$index]}"; then status=0; else status=$?; fi
+        fi
+        if (( status == 0 )); then
             if [[ "${AAGENT_ADAPTER_TIERS[$index]}" == "tier1" || \
                 "${AAGENT_ADAPTER_TIERS[$index]}" == "tier2" ]]; then
                 status="installed"
@@ -2108,9 +2358,9 @@ aagent_is_unsafe_permission_flag() {
         --skip-permissions-unsafe|--skip-permissions-unsafe=*|--allow-all-tools|\
         --allow-all-tools=*|--allow-all-paths|--allow-all-paths=*|\
         --allow-all-urls|--allow-all-urls=*|--allow-all|--allow-all=*|\
-        --auto|--auto=*|--force|--force=*|\
-        --permission-mode=bypassPermissions|--approval-mode=yolo|\
-        --sandbox=danger-full-access)
+        --auto|--auto=*|--force|--force=*|--trust|--trust=*|\
+        --approve-mcps|--approve-mcps=*|--sandbox|--sandbox=*|\
+        --permission-mode=bypassPermissions|--approval-mode=yolo)
             return 0
             ;;
     esac
@@ -2246,6 +2496,28 @@ aagent_build_adapter_launch_plan() {
             AAGENT_ADAPTER_STDIN_DATA=""
             AAGENT_ADAPTER_INPUT_DESCRIPTION="argv"
             ;;
+        cursor)
+            case "$AAGENT_INPUT_MODE" in
+                prompt)
+                    combined_prompt="$AAGENT_PROMPT"
+                    ;;
+                stdin)
+                    combined_prompt="$AAGENT_STDIN"
+                    ;;
+                both)
+                    combined_prompt="$AAGENT_PROMPT"$'\n\n--- stdin context ---\n'"$AAGENT_STDIN"
+                    ;;
+            esac
+            aagent_append_adapter_argument "--print" "--print"
+            aagent_append_adapter_argument "--output-format" "--output-format"
+            aagent_append_adapter_argument "text" "text"
+            aagent_append_model_argument "--model"
+            aagent_append_native_arguments
+            aagent_append_adapter_argument "$combined_prompt" "<prompt>"
+            AAGENT_ADAPTER_STDIN_MODE="closed"
+            AAGENT_ADAPTER_STDIN_DATA=""
+            AAGENT_ADAPTER_INPUT_DESCRIPTION="argv"
+            ;;
         amp)
             if [[ -n "$AAGENT_MODEL" ]]; then
                 AAGENT_ADAPTER_ERROR="provider amp does not support --model"
@@ -2299,9 +2571,14 @@ aagent_run_explicit_provider() {
         aagent_print_usage_error "unknown provider: $provider"
         return "$AAGENT_EXIT_USAGE"
     fi
-    if ! aagent_resolve_discovery_target \
-        "${AAGENT_ADAPTER_EXECUTABLES[$index]}" \
-        "${AAGENT_ADAPTER_OVERRIDES[$index]}"; then
+    if [[ "$provider" == "cursor" ]]; then
+        aagent_resolve_cursor_discovery_target || status=$?
+    else
+        aagent_resolve_discovery_target \
+            "${AAGENT_ADAPTER_EXECUTABLES[$index]}" \
+            "${AAGENT_ADAPTER_OVERRIDES[$index]}" || status=$?
+    fi
+    if [[ -n "${status-}" ]]; then
         printf 'aagent: provider %s selected via %s is unavailable: %s\n' \
             "$provider" "$AAGENT_PROVIDER_SOURCE_LABEL" "$AAGENT_DISCOVERY_REASON" >&2
         return "$AAGENT_EXIT_UNAVAILABLE"

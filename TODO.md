@@ -841,10 +841,16 @@ Deliverable: separately releasable adapter batches using the same contract
   freezes executable-collision, invocation, safety, auth, funding, and test
   requirements for P12A-04.
 
-- [ ] **P12A-04 Implement `cursor`.**
+- [x] **P12A-04 Implement `cursor`.**
   Prevent `agent`/`aagent` recursion, allowlist authentication booleans and
   endpoint class only, classify plan as no stronger than evidence permits, and
   add complete tests.
+
+  Evidence: Bash and PowerShell now validate Cursor's `agent`/`cursor-agent`
+  signature, build the safe text one-shot argv, supervise and redact
+  `status --format json`, rank account/API-key evidence conservatively, gate
+  local endpoints, and cover adapter, discovery, probe, selection,
+  introspection, security, documentation, and scheduled compatibility paths.
 
 - [ ] **P12A-05 Revalidate and implement Factory Droid.**
   Confirm `droid exec`, spec-mode default, autonomy flags, structured output,

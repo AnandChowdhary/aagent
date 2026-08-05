@@ -16,13 +16,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [claude, codex, opencode, copilot, amp, gemini]
+        provider: [claude, codex, opencode, copilot, amp, gemini, cursor]
 
     steps:
       - uses: actions/checkout@v7.0.0
 
       - uses: actions/setup-node@v6
-        if: matrix.provider != 'amp'
+        if: matrix.provider != 'amp' && matrix.provider != 'cursor'
         with:
           node-version: 24
           package-manager-cache: false
@@ -41,6 +41,11 @@ jobs:
             gemini) npm install --global @google/gemini-cli@latest ;;
             amp)
               curl --fail --silent --show-error --location https://ampcode.com/install.sh | bash
+              printf '%s\n' "$HOME/.local/bin" >>"$GITHUB_PATH"
+              export PATH="$HOME/.local/bin:$PATH"
+              ;;
+            cursor)
+              curl --fail --silent --show-error --location https://cursor.com/install | bash
               printf '%s\n' "$HOME/.local/bin" >>"$GITHUB_PATH"
               export PATH="$HOME/.local/bin:$PATH"
               ;;

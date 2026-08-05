@@ -44,7 +44,8 @@ source "$aagent_script"
 for flag in \
     --yolo --dangerously-skip-permissions --skip-permissions-unsafe \
     --allow-all-tools --allow-all-paths --allow-all-urls --allow-all \
-    --auto --force --permission-mode=bypassPermissions \
+    --auto --force --trust --approve-mcps --sandbox --sandbox=read-only \
+    --permission-mode=bypassPermissions \
     --approval-mode=yolo --sandbox=danger-full-access; do
     aagent_is_unsafe_permission_flag "$flag" || fail "permission denylist omitted $flag"
 done
@@ -73,7 +74,8 @@ marker_dir="$test_dir/markers"
 mkdir -p "$home_dir/.claude" "$home_dir/.codex" "$fake_bin" "$record_dir" "$work_dir" "$marker_dir"
 cp "$fake_provider" "$fake_bin/codex"
 cp "$fake_provider" "$fake_bin/copilot"
-chmod +x "$fake_bin/codex" "$fake_bin/copilot"
+cp "$fake_provider" "$fake_bin/agent"
+chmod +x "$fake_bin/codex" "$fake_bin/copilot" "$fake_bin/agent"
 
 # Credential locations are traps. A direct read would block on the FIFO; helper
 # lookups leave a marker. The provider status fixture is the only allowed source.
@@ -94,7 +96,11 @@ export AAGENT_OPENCODE_BIN="$missing_dir/opencode"
 export AAGENT_COPILOT_BIN="$fake_bin/copilot"
 export AAGENT_GEMINI_BIN="$missing_dir/gemini"
 export AAGENT_AMP_BIN="$missing_dir/amp"
+export AAGENT_CURSOR_BIN="$fake_bin/agent"
 export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro","email":"person@example.com","organization":"Secret Org"},"requiresOpenaiAuth":true}}'
+export AAGENT_FAKE_VERSION_STDOUT='2026.07.23-e383d2b'
+export AAGENT_FAKE_HELP_STDOUT='Usage: agent Start the Cursor Agent --print status'
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"status":"seeded-secret-token","message":"Cursor Secret Org","userInfo":{"email":"cursor@example.com","token":"cursor-secret-token"}}'
 export AAGENT_FAKE_CODEX_APP_SERVER_STATUS=0
 export AAGENT_FAKE_RUN_STATUS=0
 unset AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
@@ -119,6 +125,9 @@ assert_equals "$AAGENT_TEST_STATUS" 0 "credential audit providers command failed
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "person@example.com" "providers leaked an email"
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "Secret Org" "providers leaked an organization"
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "seeded-secret-token" "providers leaked Copilot configuration"
+assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "cursor@example.com" "providers leaked Cursor email"
+assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "Cursor Secret Org" "providers leaked Cursor team"
+assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "cursor-secret-token" "providers leaked Cursor status"
 [[ ! -e "$record_dir/run.count" ]] || fail "credential audit launched a model"
 
 rm -rf "$record_dir"
@@ -145,7 +154,8 @@ run_wrapper "$test_dir/safe-dry-run" --provider codex --dry-run 'say hello'
 assert_equals "$AAGENT_TEST_STATUS" 0 "safe dry-run failed"
 safe_plan="$(<"$test_dir/safe-dry-run.stdout")"
 for flag in --yolo --dangerously-skip-permissions --allow-all-tools \
-    --allow-all-paths --allow-all-urls --allow-all --auto; do
+    --allow-all-paths --allow-all-urls --allow-all --auto --force --trust \
+    --approve-mcps --sandbox; do
     assert_not_contains "$safe_plan" "$flag" "wrapper injected $flag"
 done
 [[ ! -e "$record_dir/run.count" ]] || fail "safe dry-run launched a model"

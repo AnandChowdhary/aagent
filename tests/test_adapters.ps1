@@ -92,6 +92,7 @@ function Get-AdapterModel([string] $Provider) {
         "codex" { return "codex-model" }
         "opencode" { return "provider/model" }
         "copilot" { return "copilot-model" }
+        "cursor" { return "cursor-model" }
         "gemini" { return "gemini-model" }
         "amp" { return "" }
     }
@@ -105,6 +106,7 @@ function Get-AdapterDisplayName([string] $Provider) {
         "copilot" { return "GitHub Copilot CLI" }
         "amp" { return "Amp" }
         "gemini" { return "Gemini CLI" }
+        "cursor" { return "Cursor CLI" }
     }
 }
 
@@ -114,6 +116,7 @@ function Get-PromptArguments([string] $Provider, [string] $Prompt, [string] $Mod
         "codex" { return @("exec", "--model", $Model, "--native-flag", "-leading-value", $Prompt) }
         "opencode" { return @("run", "--model", $Model, "--native-flag", "-leading-value", $Prompt) }
         "copilot" { return @("--prompt", $Prompt, "--silent", "--no-ask-user", "--model", $Model, "--native-flag", "-leading-value") }
+        "cursor" { return @("--print", "--output-format", "text", "--model", $Model, "--native-flag", "-leading-value", $Prompt) }
         "amp" { return @("--execute", $Prompt, "--native-flag", "-leading-value") }
         "gemini" { return @("--model", $Model, "--native-flag", "-leading-value", "--prompt", $Prompt) }
     }
@@ -125,6 +128,7 @@ function Get-StdinCase([string] $Provider, [string] $Stdin) {
         "codex" { return [pscustomobject] @{ Arguments = @("exec", "-"); Stdin = $Stdin } }
         "opencode" { return [pscustomobject] @{ Arguments = @("run", $Stdin); Stdin = "" } }
         "copilot" { return [pscustomobject] @{ Arguments = @("--prompt", $Stdin, "--silent", "--no-ask-user"); Stdin = "" } }
+        "cursor" { return [pscustomobject] @{ Arguments = @("--print", "--output-format", "text", $Stdin); Stdin = "" } }
         "amp" { return [pscustomobject] @{ Arguments = @("--execute"); Stdin = $Stdin } }
         "gemini" { return [pscustomobject] @{ Arguments = @(); Stdin = $Stdin } }
     }
@@ -146,6 +150,12 @@ function Get-BothCase([string] $Provider, [string] $Prompt, [string] $Stdin) {
                 Stdin = ""
             }
         }
+        "cursor" {
+            return [pscustomobject] @{
+                Arguments = @("--print", "--output-format", "text", "$Prompt`n`n--- stdin context ---`n$Stdin")
+                Stdin = ""
+            }
+        }
         "amp" { return [pscustomobject] @{ Arguments = @("--execute", $Prompt); Stdin = $Stdin } }
         "gemini" { return [pscustomobject] @{ Arguments = @("--prompt", $Prompt); Stdin = $Stdin } }
     }
@@ -154,7 +164,7 @@ function Get-BothCase([string] $Provider, [string] $Prompt, [string] $Stdin) {
 $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-adapters-" + [guid]::NewGuid().ToString("N"))
 $overrideNames = @(
     "AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN",
-    "AAGENT_AMP_BIN", "AAGENT_GEMINI_BIN"
+    "AAGENT_AMP_BIN", "AAGENT_GEMINI_BIN", "AAGENT_CURSOR_BIN"
 )
 $environmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "PATH",
@@ -162,6 +172,7 @@ $environmentNames = @(
     "AAGENT_FAKE_RUN_STDOUT", "AAGENT_FAKE_RUN_STDERR", "AAGENT_FAKE_RUN_STATUS",
     "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR", "AAGENT_FAKE_PROBE_STATUS",
     "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES",
+    "AAGENT_FAKE_VERSION_STDOUT", "AAGENT_FAKE_HELP_STDOUT", "CURSOR_API_KEY",
     "AAGENT_FAKE_CLAUDE_STDOUT", "AAGENT_FAKE_CLAUDE_STDERR", "AAGENT_FAKE_CLAUDE_STATUS",
     "AAGENT_FAKE_CODEX_APP_SERVER_STDOUT", "AAGENT_FAKE_CODEX_APP_SERVER_STDERR",
     "AAGENT_FAKE_CODEX_APP_SERVER_STATUS", "AAGENT_FAKE_CODEX_LOGIN_STDOUT",
@@ -208,7 +219,7 @@ try {
         }
     }
 
-    $providers = @("claude", "codex", "opencode", "copilot", "amp", "gemini")
+    $providers = @("claude", "codex", "opencode", "copilot", "amp", "gemini", "cursor")
     foreach ($provider in $providers) {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }
@@ -227,6 +238,13 @@ try {
         $env:AAGENT_FAKE_RUN_STATUS = "0"
         $env:AAGENT_FAKE_CLAUDE_STDOUT = '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max","apiProvider":"claude.ai"}'
         $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}}'
+        $env:AAGENT_FAKE_VERSION_STDOUT = "2026.07.23-e383d2b"
+        $env:AAGENT_FAKE_HELP_STDOUT = "Usage: agent Start the Cursor Agent --print status"
+        if ($provider -eq "cursor") {
+            $env:AAGENT_CURSOR_BIN = Join-Path $fakeBin "cursor.ps1"
+        } else {
+            Remove-Item Env:AAGENT_CURSOR_BIN -ErrorAction SilentlyContinue
+        }
 
         $model = Get-AdapterModel $provider
         $displayName = Get-AdapterDisplayName $provider

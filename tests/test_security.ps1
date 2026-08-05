@@ -55,7 +55,8 @@ if ($powerShellSource -match 'Invoke-Expression|\[ScriptBlock\]::Create|ScriptBl
 foreach ($flag in @(
     "--yolo", "--dangerously-skip-permissions", "--skip-permissions-unsafe",
     "--allow-all-tools", "--allow-all-paths", "--allow-all-urls", "--allow-all",
-    "--auto", "--force", "--permission-mode=bypassPermissions",
+    "--auto", "--force", "--trust", "--approve-mcps", "--sandbox", "--sandbox=read-only",
+    "--permission-mode=bypassPermissions",
     "--approval-mode=yolo", "--sandbox=danger-full-access"
 )) {
     if (-not (Test-AagentUnsafePermissionFlag $flag)) { throw "permission denylist omitted $flag" }
@@ -72,12 +73,14 @@ $environmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "PATH", "AAGENT_FAKE_RECORD_DIR",
     "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
     "AAGENT_CODEX_BIN", "AAGENT_CLAUDE_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN",
-    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN",
+    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN", "AAGENT_CURSOR_BIN",
     "AAGENT_FAKE_CODEX_APP_SERVER_STDOUT", "AAGENT_FAKE_CODEX_APP_SERVER_STATUS",
     "AAGENT_FAKE_RUN_STATUS", "AAGENT_FAKE_INVOCATION_KIND",
     "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR", "AAGENT_FAKE_PROBE_STATUS",
     "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES", "CODEX_API_KEY", "OPENAI_API_KEY",
-    "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_HEADERS"
+    "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_HEADERS",
+    "AAGENT_FAKE_VERSION_STDOUT", "AAGENT_FAKE_HELP_STDOUT",
+    "AAGENT_FAKE_CURSOR_STATUS_STDOUT", "CURSOR_API_KEY"
 )
 $originalEnvironment = @{}
 foreach ($name in $environmentNames) {
@@ -100,8 +103,10 @@ try {
     )) { [IO.Directory]::CreateDirectory($directory) | Out-Null }
     $codexPath = Join-Path $fakeBin "codex.ps1"
     $copilotPath = Join-Path $fakeBin "copilot.ps1"
+    $cursorPath = Join-Path $fakeBin "agent.ps1"
     Copy-Item -LiteralPath $fakeProvider -Destination $codexPath
     Copy-Item -LiteralPath $fakeProvider -Destination $copilotPath
+    Copy-Item -LiteralPath $fakeProvider -Destination $cursorPath
     foreach ($credentialPath in @(
         (Join-Path $homeDir ".claude/.credentials.json"),
         (Join-Path $homeDir ".codex/auth.json")
@@ -124,8 +129,12 @@ try {
     $env:AAGENT_COPILOT_BIN = $copilotPath
     $env:AAGENT_GEMINI_BIN = Join-Path $missingDir "gemini"
     $env:AAGENT_AMP_BIN = Join-Path $missingDir "amp"
+    $env:AAGENT_CURSOR_BIN = $cursorPath
     $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro","email":"person@example.com","organization":"Secret Org"},"requiresOpenaiAuth":true}}'
     $env:AAGENT_FAKE_CODEX_APP_SERVER_STATUS = "0"
+    $env:AAGENT_FAKE_VERSION_STDOUT = "2026.07.23-e383d2b"
+    $env:AAGENT_FAKE_HELP_STDOUT = "Usage: agent Start the Cursor Agent --print status"
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"status":"seeded-secret-token","message":"Cursor Secret Org","userInfo":{"email":"cursor@example.com","token":"cursor-secret-token"}}'
     $env:AAGENT_FAKE_RUN_STATUS = "0"
     foreach ($name in @(
         "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
@@ -144,6 +153,9 @@ try {
     Assert-NotContains $result.Stdout "person@example.com" "providers leaked an email"
     Assert-NotContains $result.Stdout "Secret Org" "providers leaked an organization"
     Assert-NotContains $result.Stdout "seeded-secret-token" "providers leaked Copilot configuration"
+    Assert-NotContains $result.Stdout "cursor@example.com" "providers leaked Cursor email"
+    Assert-NotContains $result.Stdout "Cursor Secret Org" "providers leaked Cursor team"
+    Assert-NotContains $result.Stdout "cursor-secret-token" "providers leaked Cursor status"
     if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) { throw "credential audit launched a model" }
 
     Remove-Item -LiteralPath $recordDir -Recurse -Force
@@ -171,7 +183,8 @@ try {
     Assert-Equal $result.Status 0 "safe dry-run failed"
     foreach ($flag in @(
         "--yolo", "--dangerously-skip-permissions", "--allow-all-tools",
-        "--allow-all-paths", "--allow-all-urls", "--allow-all", "--auto"
+        "--allow-all-paths", "--allow-all-urls", "--allow-all", "--auto", "--force",
+        "--trust", "--approve-mcps", "--sandbox"
     )) {
         Assert-NotContains $result.Stdout $flag "wrapper injected $flag"
     }

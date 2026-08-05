@@ -86,6 +86,9 @@ $probeEnvironmentNames = @(
     "AAGENT_FAKE_CODEX_LOGIN_DELAY", "AAGENT_FAKE_CODEX_LOGIN_BYTES",
     "AAGENT_FAKE_OPENCODE_STDOUT", "AAGENT_FAKE_OPENCODE_STDERR",
     "AAGENT_FAKE_OPENCODE_STATUS", "AAGENT_FAKE_OPENCODE_DELAY", "AAGENT_FAKE_OPENCODE_BYTES",
+    "AAGENT_FAKE_CURSOR_STATUS_STDOUT", "AAGENT_FAKE_CURSOR_STATUS_STDERR",
+    "AAGENT_FAKE_CURSOR_STATUS_STATUS", "AAGENT_FAKE_CURSOR_STATUS_DELAY",
+    "AAGENT_FAKE_CURSOR_STATUS_BYTES", "CURSOR_API_KEY",
     "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
     "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
@@ -131,7 +134,7 @@ try {
     )) {
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
-    foreach ($provider in @("claude", "codex", "opencode")) {
+    foreach ($provider in @("claude", "codex", "opencode", "agent")) {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }
     foreach ($commandName in @("security", "secret-tool", "cmdkey", "api-key-helper")) {
@@ -345,6 +348,91 @@ try {
     Assert-ProbeEqual (
         [IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()
     ) $copilotProbeCountBefore "Copilot launched a provider probe."
+
+    Clear-ProbeCase
+    $cursorProbeCountBefore = [IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()
+    $env:CURSOR_API_KEY = "seeded-secret-token"
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor ready included_account 1 "Cursor account" `
+        cursor_api_key_environment environment environment_only
+    Assert-ProbeEqual ($result.ShadowingVariables -join ",") "CURSOR_API_KEY" "Cursor API key evidence differs."
+    Assert-ProbeEqual (
+        [IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()
+    ) $cursorProbeCountBefore "Cursor API key launched a status probe."
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"status":"authenticated","message":"Secret Organization","userInfo":{"email":"person@example.com","token":"seeded-secret-token"},"plan":"ultra"}'
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor ready included_account 3 "Cursor account" `
+        cursor_authenticated_status auth_status success
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":false,"hasAccessToken":false,"hasRefreshToken":false}'
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor unusable unknown 3 "Not signed in" `
+        cursor_not_authenticated auth_status success
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true}'
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor unknown unknown 0 "Unknown" cursor_schema_failure auth_status schema_failure
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"https://api2.cursor.sh/v1"}'
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor ready included_account 3 "Cursor account" `
+        cursor_authenticated_status auth_status success
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"http://127.0.0.42:11434/v1"}'
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor ready local 3 "Local provider" cursor_authenticated_local auth_status success
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"http://[::1]:11434/v1"}'
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor ready local 3 "Local provider" cursor_authenticated_local auth_status success
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"https://models.example.test/v1"}'
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor ready unknown 3 "Custom provider" cursor_authenticated_custom auth_status success
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"https://seeded-secret-token@example.test/v1"}'
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor unknown unknown 0 "Unknown" cursor_endpoint_invalid `
+        auth_status invalid_configuration
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":null}'
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor unknown unknown 0 "Unknown" cursor_schema_failure auth_status schema_failure
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = "not-json seeded-secret-token person@example.com"
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor unknown unknown 0 "Unknown" cursor_schema_failure auth_status schema_failure
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_DELAY = "4"
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor unknown unknown 0 "Unknown" cursor_probe_failed auth_status timeout
+
+    Clear-ProbeCase
+    $env:AAGENT_FAKE_CURSOR_STATUS_BYTES = "70000"
+    $result = Invoke-AagentProviderProbe "cursor" (Join-Path $fakeBin "agent.ps1")
+    Assert-ProbeResult $result cursor unknown unknown 0 "Unknown" cursor_probe_failed auth_status truncated
+
+    $cursorRecords = Get-ChildItem -LiteralPath $recordDir -Filter "agent.probe.*.record"
+    if (-not ($cursorRecords | Where-Object {
+        $contents = [IO.File]::ReadAllText($_.FullName, $utf8)
+        $contents.Contains("arg.0.hex=$(Convert-ProbeHex 'status')") -and
+        $contents.Contains("arg.1.hex=$(Convert-ProbeHex '--format')") -and
+        $contents.Contains("arg.2.hex=$(Convert-ProbeHex 'json')")
+    })) {
+        throw "Cursor status --format json command differs."
+    }
 
     Clear-ProbeCase
     $probeCountBefore = [IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()

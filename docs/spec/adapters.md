@@ -129,6 +129,29 @@ candidate.
   remain `unknown` because there is no passive status command.
 - Revalidation: [2026-08-05 Copilot CLI](../research/copilot-cli-2026-08-05.md).
 
+### Cursor CLI (`cursor`)
+
+- Invocation: `agent --print --output-format text PROMPT` after validating the
+  resolved executable's Cursor-specific version/help signature.
+- Discovery: explicit `AAGENT_CURSOR_BIN`, then `agent`, then legacy
+  `cursor-agent`. A wrapper/self path or non-Cursor signature is rejected.
+- Model: `--model ID`.
+- Input: prompt-only, stdin-only, and prompt-plus-stdin become one positional
+  prompt argument; the child receives closed stdin.
+- Native output: text by default; JSON and stream JSON remain native options.
+- Permissions: print mode proposes changes unless the user explicitly supplies
+  Cursor autonomy controls. `aagent` generates no force, yolo, trust, MCP
+  approval, sandbox, or permission option.
+- Authentication: `status --format json` is bounded and reduced to three
+  booleans and an optional endpoint class. Authenticated vendor accounts and
+  `CURSOR_API_KEY` presence are at most `included_account`; local endpoints are
+  `local`, custom endpoints are funding-unknown, and no plan or quota is
+  inferred.
+- Platform: the official installer supports macOS and Linux on x64 and arm64;
+  Cursor documents Windows use through WSL. PowerShell parity remains supported
+  when a compatible executable is present.
+- Revalidation: [2026-08-05 Cursor CLI](../research/cursor-cli-2026-08-05.md).
+
 ## Tier 2: planned adapters
 
 | ID | Executable and one-shot form | Structured output | Important compatibility note |
@@ -141,7 +164,6 @@ candidate.
 | `crush` | `crush run PROMPT` | no documented stable JSON mode | Native permission prompts remain unless `--yolo` is explicitly used. |
 | `vibe` | `vibe --prompt PROMPT` | JSON and streaming NDJSON | Supports auto-approval, tool restrictions, budgets, sessions, and configurable agents. |
 | `kiro` | `kiro-cli chat --no-interactive PROMPT` | no documented stable JSON mode | Headless use requires an API key; trust flags control pre-approved tools. |
-| `cursor` | `agent --print --output-format text PROMPT` | JSON and stream JSON | The installer makes `agent` primary and `cursor-agent` a legacy alias. Reject wrapper recursion; changes are proposed unless the user explicitly supplies Cursor's force/yolo option. |
 | `aider` | `aider --message PROMPT` | no documented stable JSON mode | Automatically commits changes by default. An adapter must expose this fact and must not silently broaden Git side effects. |
 
 Tier 2 means the official interface is suitable, but its adapter is not required
@@ -156,7 +178,6 @@ to call the initial implementation complete.
 | Qwen Code | Coding Plan endpoint and documented auth-selection configuration | A Coding Plan uses an API key but is `included_confirmed`; generic API keys remain provider-specific. |
 | Kimi Code | Managed-login or selected-provider metadata | Kimi membership API keys can share membership quota, so keys are not automatically BYOK. |
 | Cline | Selected provider when exposed safely | `openai-codex` is subscription-backed; Cline account credits and other BYOK providers require different classes. No focused public status command currently exposes this safely. |
-| Cursor CLI | `agent status --format json`, parsing only three authentication booleans and an optional endpoint class | The status command may attempt account enrichment and can return PII, which must be discarded. Browser and `CURSOR_API_KEY` both authenticate Cursor accounts; plan tier and remaining personal usage are unavailable. |
 | Aider | Nonsecret model/base-URL selection only | Local models and Copilot can avoid direct API billing; normal configs may contain raw keys and must not be emitted or parsed wholesale. |
 | Crush | Selected provider and documented OAuth metadata, when safely exposed | Copilot can be included; Hyper and provider keys require provider-specific funding semantics. `crush login` is not a status probe. |
 | Mistral Vibe | Browser/account state and selected provider profile, when safely exposed | Key location does not distinguish included Vibe budget from pay-as-you-go. |

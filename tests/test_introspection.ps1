@@ -48,9 +48,13 @@ $environmentNames = @(
     "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL",
     "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
     "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
+    "CURSOR_API_KEY", "AAGENT_FAKE_CURSOR_STATUS_STDOUT", "AAGENT_FAKE_CURSOR_STATUS_STATUS",
     "AAGENT_FAKE_CODEX_APP_SERVER_STDOUT", "AAGENT_FAKE_CODEX_APP_SERVER_STATUS",
+    "AAGENT_FAKE_INVOCATION_KIND", "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR",
+    "AAGENT_FAKE_PROBE_STATUS", "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES",
     "AAGENT_FAKE_VERSION_STDOUT", "AAGENT_FAKE_VERSION_STATUS",
-    "AAGENT_FAKE_VERSION_DELAY", "AAGENT_FAKE_VERSION_BYTES"
+    "AAGENT_FAKE_VERSION_DELAY", "AAGENT_FAKE_VERSION_BYTES", "AAGENT_FAKE_HELP_STDOUT",
+    "AAGENT_FAKE_HELP_STATUS"
 )
 $providerIds = @("codex", "claude", "opencode", "copilot", "gemini", "cline", "goose", "aider", "qwen", "amp", "kimi", "droid", "crush", "vibe", "kiro", "cursor")
 $providerOverrides = @(
@@ -76,8 +80,10 @@ try {
     }
     $codexPath = Join-Path $fakeBin "codex.ps1"
     $copilotPath = Join-Path $fakeBin "copilot.ps1"
+    $cursorPath = Join-Path $fakeBin "agent.ps1"
     Copy-Item -LiteralPath $fakeProvider -Destination $codexPath
     Copy-Item -LiteralPath $fakeProvider -Destination $copilotPath
+    Copy-Item -LiteralPath $fakeProvider -Destination $cursorPath
     $env:HOME = $homeDir
     $env:XDG_CONFIG_HOME = $configDir
     $env:APPDATA = $appDataDir
@@ -99,10 +105,16 @@ try {
             "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL",
             "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
             "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
+            "CURSOR_API_KEY", "AAGENT_FAKE_CURSOR_STATUS_STDOUT", "AAGENT_FAKE_CURSOR_STATUS_STATUS",
+            "AAGENT_FAKE_INVOCATION_KIND", "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR",
+            "AAGENT_FAKE_PROBE_STATUS", "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES",
             "AAGENT_FAKE_VERSION_DELAY", "AAGENT_FAKE_VERSION_BYTES"
         )) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
         $env:AAGENT_FAKE_VERSION_STDOUT = "codex-cli 1.2.3"
         $env:AAGENT_FAKE_VERSION_STATUS = "0"
+        $env:AAGENT_FAKE_HELP_STDOUT = "Usage: agent Start the Cursor Agent --print status"
+        $env:AAGENT_FAKE_HELP_STATUS = "0"
+        $env:AAGENT_FAKE_CURSOR_STATUS_STATUS = "0"
     }
 
     Clear-Case
@@ -155,6 +167,37 @@ try {
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()) "1" `
         "Copilot doctor ran more than its version probe"
     if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) { throw "Copilot doctor launched a model" }
+
+    Clear-Case
+    $env:AAGENT_CURSOR_BIN = $cursorPath
+    $env:AAGENT_FAKE_VERSION_STDOUT = "2026.07.23-e383d2b"
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"userInfo":{"email":"person@example.com","team":"Secret Org"},"message":"seeded-secret-token"}'
+    $result = Invoke-Wrapper @("providers")
+    Assert-Equal $result.Status 0 "Cursor providers inspection failed"
+    Assert-Contains $result.Stdout "cursor" "Cursor providers output omitted provider"
+    Assert-Contains $result.Stdout "included_account" "Cursor providers output omitted funding"
+    Assert-NotContains $result.Stdout "person@example.com" "Cursor providers output leaked email"
+    Assert-NotContains $result.Stdout "Secret Org" "Cursor providers output leaked team"
+    Assert-NotContains $result.Stdout "seeded-secret-token" "Cursor providers output leaked status message"
+    Assert-Equal ([IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()) "3" `
+        "Cursor providers probe count differs"
+
+    Clear-Case
+    $env:AAGENT_CURSOR_BIN = $cursorPath
+    $env:AAGENT_FAKE_VERSION_STDOUT = "2026.07.23-e383d2b"
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true}'
+    $result = Invoke-Wrapper @("doctor", "cursor")
+    Assert-Equal $result.Status 0 "Cursor doctor failed"
+    Assert-Contains $result.Stdout "provider: cursor" "Cursor doctor omitted provider"
+    Assert-Contains $result.Stdout "tier: tier2" "Cursor doctor omitted tier"
+    Assert-Contains $result.Stdout "version: 2026.07.23-e383d2b" "Cursor doctor omitted safe version"
+    Assert-Contains $result.Stdout "authentication: ready" "Cursor doctor omitted readiness"
+    Assert-Contains $result.Stdout "funding: included_account" "Cursor doctor omitted funding"
+    Assert-Contains $result.Stdout "command: agent --print --output-format text PROMPT" "Cursor doctor omitted command"
+    Assert-Contains $result.Stdout "explicitly forces" "Cursor doctor omitted safety caveat"
+    Assert-Equal ([IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()) "4" `
+        "Cursor doctor probe count differs"
+    if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) { throw "Cursor doctor launched a model" }
 
     Clear-Case
     $result = Invoke-Wrapper @("doctor", "claude")

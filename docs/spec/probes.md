@@ -47,7 +47,8 @@ Timeout, crash, invalid UTF-8, excessive output, malformed data, missing fields,
 unexpected types, protocol mismatch, and unsupported versions become a valid
 `unknown` record. They do not fail a wrapper invocation or start a provider run.
 
-Normal selection uses no network-dependent status endpoint:
+Normal selection avoids network-dependent status endpoints except for a
+provider's documented passive surface when no equivalent local signal exists:
 
 - Claude runs `auth status --json`.
 - Codex performs the documented local app-server initialization and
@@ -62,6 +63,10 @@ Normal selection uses no network-dependent status endpoint:
 - Gemini reads only `~/.gemini/settings.json` and projects
   `security.auth.selectedType`; it does not run the CLI.
 - Amp does not run `usage` or another account command automatically.
+- Cursor runs `status --format json`; the provider may perform account
+  enrichment, so the shared timeout/output bounds apply and the response is
+  discarded immediately after allowlisted parsing. `CURSOR_API_KEY` presence
+  skips the status command.
 
 ## Provider classifications
 
@@ -91,6 +96,15 @@ to `unknown`. When BYOK is absent, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or
 `GITHUB_TOKEN` presence is low-confidence `included_account`; stored OAuth and
 plan entitlement remain `unknown`.
 
+Cursor requires boolean `isAuthenticated`, `hasAccessToken`, and
+`hasRefreshToken` fields. Three true values establish `ready` with at most
+`included_account`; a well-formed false authentication result is `unusable`.
+Partial, contradictory, malformed, failed, timed-out, or truncated responses
+are `unknown`. An optional HTTP(S) endpoint is reduced to `vendor`, `local`, or
+`custom`; invalid authorities degrade to `unknown`, local funding requires the
+global local opt-in, and custom funding stays unknown. Account, team, status,
+message, plan-like, and `userInfo` fields are ignored.
+
 ## Credential boundary
 
 The wrapper never opens provider token files, auth databases, keychains, OS
@@ -103,6 +117,11 @@ to validate its HTTP(S) authority and determine whether the exact host is
 loopback. The raw URL is immediately discarded and never emitted. Credential,
 header, model, and token variables are still inspected by name and presence
 only.
+
+The Cursor status exception passes raw output only to the allowlist parser.
+The three authentication booleans and a fixed endpoint class are the only
+derived data retained; raw endpoint strings and every account or PII field are
+discarded.
 
 Gemini's documented settings file is the only provider-owned file parsed by
 the wrapper. Unknown JSON fields are discarded and cannot enter the result.

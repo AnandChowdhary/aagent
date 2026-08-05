@@ -174,8 +174,8 @@ changed files or spent tokens.
 
 ## Supported providers
 
-The first release's Tier 1 adapters and the implemented Tier 2 Copilot adapter
-are supported for real runs:
+The first release's Tier 1 adapters and the implemented Tier 2 Copilot and
+Cursor adapters are supported for real runs:
 
 | Provider | One-shot command | Per-run model | Passive local evidence | Important native behavior |
 | --- | --- | --- | --- | --- |
@@ -185,14 +185,16 @@ are supported for real runs:
 | [GitHub Copilot CLI](https://github.com/github/copilot-cli) (`copilot`) | `copilot --prompt PROMPT --silent --no-ask-user` | `--model` | BYOK and GitHub token variable presence only | Piped context is combined into the prompt argument. Native approvals remain active; `aagent` never adds `--allow-all`, `--yolo`, or another permission grant. |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) | `gemini --prompt` | `--model` | documented `security.auth.selectedType` setting | Approval and sandbox modes remain native; `aagent` never adds `yolo`. |
 | [Amp](https://ampcode.com/manual) (`amp`) | `amp --execute` | not supported | account-token presence only | Amp documents that it uses tools without asking by default. Omitting an unsafe flag does not make it read-only. |
+| [Cursor CLI](https://docs.cursor.com/en/cli/overview) (`cursor`) | `agent --print --output-format text PROMPT` | `--model` | `status --format json` or `CURSOR_API_KEY` presence | The primary executable is `agent`, with `cursor-agent` as a legacy fallback. `aagent` validates Cursor's version/help signature to prevent recursion and never adds force, yolo, trust, MCP approval, or sandbox flags. |
 
 Installations are discovered from `PATH`. Advanced users can override an exact
 executable with `AAGENT_CODEX_BIN`, `AAGENT_CLAUDE_BIN`,
-`AAGENT_OPENCODE_BIN`, `AAGENT_COPILOT_BIN`, `AAGENT_GEMINI_BIN`, or
-`AAGENT_AMP_BIN`.
+`AAGENT_OPENCODE_BIN`, `AAGENT_COPILOT_BIN`, `AAGENT_GEMINI_BIN`,
+`AAGENT_AMP_BIN`, or `AAGENT_CURSOR_BIN`.
 
-`aagent providers` also lists planned adapters, including Cursor's separate
-`agent` executable, as unsupported rather than confusing it with `aagent`.
+`aagent providers` also lists planned adapters as unsupported. Cursor is
+reported separately as provider `cursor` even though its installed executable
+is named `agent`.
 
 ## Authentication policy
 
@@ -218,6 +220,14 @@ wrapper classifies only the endpoint authority and documented variable names;
 it never prints the URL, headers, or credentials. GitHub token presence is
 low-confidence account evidence because Copilot exposes no passive command for
 stored entitlement or plan tier.
+
+Cursor's documented status command may contact its account endpoint. The
+wrapper keeps only `isAuthenticated`, `hasAccessToken`, and `hasRefreshToken`
+booleans plus a reduced optional endpoint class, then discards the response.
+An authenticated vendor account or present `CURSOR_API_KEY` is at most
+`included_account`; Cursor exposes neither plan tier nor remaining allowance.
+Local endpoints require `--allow-local true`, and custom remote endpoints stay
+funding-unknown.
 
 Passive probes are bounded, non-interactive, and fail safely to `unknown`.
 They do not read stored token files or keychains, invoke credential helpers,
@@ -299,7 +309,8 @@ through without remapping.
 GitHub Actions runs the complete Bash suite on Linux, macOS, and Windows Git
 Bash, plus the complete PowerShell suite on Windows. A separate weekly
 credential-free workflow installs every currently supported CLI, including
-Copilot, and verifies only documented help/version command surfaces.
+Copilot and Cursor, and verifies only documented help/version and non-secret
+status-help command surfaces.
 
 ## Safety boundary and limitations
 
