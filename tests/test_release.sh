@@ -22,7 +22,7 @@ assert_file_contains() {
 }
 
 release_dir="$test_dir/release assets"
-bash "$package_script" "$release_dir" v0.1.0 >/dev/null
+bash "$package_script" "$release_dir" v0.1.1 >/dev/null
 
 expected_assets=(SHA256SUMS aagent.ps1 aagent.sh install.ps1 install.sh)
 asset_names=""
@@ -44,7 +44,7 @@ bad_tag_status=$?
 set -e
 [[ "$bad_tag_status" == 1 ]] || fail "mismatched release tag did not fail"
 assert_file_contains "$test_dir/bad-tag.stderr" \
-    "does not match version 0.1.0" "mismatched release tag diagnostic differs"
+    "does not match version 0.1.1" "mismatched release tag diagnostic differs"
 
 # shellcheck disable=SC2016 # GitHub evaluates this expression, not Bash.
 workflow_contract=(
@@ -67,7 +67,7 @@ done
 # shellcheck disable=SC2016 # README documents the literal shell variable.
 assert_file_contains "$project_root/README.md" \
     'releases/download/v${AAGENT_VERSION}' "README omitted version-pinned release installation"
-assert_file_contains "$project_root/docs/releases/v0.1.0.md" \
+assert_file_contains "$project_root/docs/releases/v0.1.1.md" \
     'No paid or model prompts were sent' "release notes overstate live-provider coverage"
 
 printf 'Release packaging Bash tests passed.\n'

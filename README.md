@@ -26,7 +26,7 @@ does not install or sign in to coding agents.
 ### macOS, Linux, Git Bash, or WSL
 
 ```bash
-AAGENT_VERSION=0.1.0
+AAGENT_VERSION=0.1.1
 AAGENT_BASE_URL="https://github.com/AnandChowdhary/aagent/releases/download/v${AAGENT_VERSION}"
 curl -fsSL "$AAGENT_BASE_URL/install.sh" |
   AAGENT_DOWNLOAD_BASE_URL="$AAGENT_BASE_URL" \
@@ -43,7 +43,7 @@ untouched. Set `INSTALL_DIR` to choose a different destination.
 ### Windows PowerShell 7
 
 ```powershell
-$AagentVersion = "0.1.0"
+$AagentVersion = "0.1.1"
 $AagentBaseUrl = "https://github.com/AnandChowdhary/aagent/releases/download/v$AagentVersion"
 $env:AAGENT_DOWNLOAD_BASE_URL = $AagentBaseUrl
 $env:AAGENT_EXPECTED_VERSION = $AagentVersion

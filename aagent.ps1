@@ -5,7 +5,7 @@ Set-Variable -Name AagentExitUsage -Value 64 -Option Constant -Scope Script
 Set-Variable -Name AagentExitUnavailable -Value 69 -Option Constant -Scope Script
 Set-Variable -Name AagentExitSoftware -Value 70 -Option Constant -Scope Script
 Set-Variable -Name AagentExitConfig -Value 78 -Option Constant -Scope Script
-Set-Variable -Name AagentVersion -Value "0.1.0" -Option Constant -Scope Script
+Set-Variable -Name AagentVersion -Value "0.1.1" -Option Constant -Scope Script
 Set-Variable -Name AagentPopularitySnapshot -Value "2026-08-04" -Option Constant -Scope Script
 Set-Variable -Name AagentScriptPath -Value $PSCommandPath -Option Constant -Scope Script
 
@@ -736,7 +736,7 @@ function Invoke-AagentCodexFallback($Result, [string] $Executable) {
 function Invoke-AagentCodexProbe([string] $Executable) {
     $result = New-AagentProbeResult "codex"
     $protocolInput = @(
-        '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"aagent","title":"aagent","version":"0.1.0"}}}'
+        '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"aagent","title":"aagent","version":"0.1.1"}}}'
         '{"method":"initialized","params":{}}'
         '{"method":"account/read","id":1,"params":{"refreshToken":false}}'
         ""
