@@ -8,6 +8,7 @@ $contractPath = Join-Path $projectRoot "docs/spec/cli-contract.md"
 $acceptancePath = Join-Path $projectRoot "docs/acceptance-evidence.md"
 $specificationPath = Join-Path $projectRoot "SPEC.md"
 $ledgerPath = Join-Path $projectRoot "TODO.md"
+$copilotResearchPath = Join-Path $projectRoot "docs/research/copilot-cli-2026-08-05.md"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 function Assert-DocsContains([string] $Value, [string] $Expected, [string] $Message) {
@@ -20,6 +21,7 @@ $contract = [IO.File]::ReadAllText($contractPath, $utf8)
 $acceptance = [IO.File]::ReadAllText($acceptancePath, $utf8)
 $specification = [IO.File]::ReadAllText($specificationPath, $utf8)
 $ledger = [IO.File]::ReadAllText($ledgerPath, $utf8)
+$copilotResearch = [IO.File]::ReadAllText($copilotResearchPath, $utf8)
 
 $releaseEvidenceContract = @(
     "Status: Complete for aagent 0.1.1",
@@ -37,8 +39,21 @@ foreach ($criterion in 1..12) {
     Assert-DocsContains $acceptance "| $criterion |" "MVP acceptance criterion $criterion is unrecorded"
 }
 Assert-DocsContains $specification "Status: MVP released" "SPEC does not mark the MVP released"
-Assert-DocsContains $ledger "Current milestone: MVP released; Phase 12 and later deferred" `
-    "implementation ledger does not mark the MVP released"
+Assert-DocsContains $ledger "Current milestone: Phase 12 Tier 2 adapters" `
+    "implementation ledger does not identify the active backlog phase"
+
+$copilotResearchContract = @(
+    "Status: Normative implementation input for P12A-02",
+    "GitHub Copilot CLI 1.0.78",
+    "87982a909d52fcf095ee4458d3b5a69bbfd8ae614177115191b977a93df3d807",
+    "copilot --prompt PROMPT --silent --no-ask-user",
+    "COPILOT_PROVIDER_BASE_URL",
+    "no non-mutating",
+    "No unresolved interface question blocks P12A-02"
+)
+foreach ($evidence in $copilotResearchContract) {
+    Assert-DocsContains $copilotResearch $evidence "Copilot revalidation omitted $evidence"
+}
 
 $helpContract = @(
     "aagent [OPTIONS] [PROMPT...]",

@@ -11,6 +11,7 @@ cli_contract="$project_root/docs/spec/cli-contract.md"
 acceptance_evidence="$project_root/docs/acceptance-evidence.md"
 specification="$project_root/SPEC.md"
 ledger="$project_root/TODO.md"
+copilot_research="$project_root/docs/research/copilot-cli-2026-08-05.md"
 test_dir="$(mktemp -d)"
 
 cleanup() {
@@ -36,6 +37,7 @@ contract_text="$(<"$cli_contract")"
 acceptance_text="$(<"$acceptance_evidence")"
 specification_text="$(<"$specification")"
 ledger_text="$(<"$ledger")"
+copilot_research_text="$(<"$copilot_research")"
 
 release_evidence_contract=(
     'Status: Complete for aagent 0.1.1'
@@ -53,8 +55,21 @@ for criterion in {1..12}; do
     assert_contains "$acceptance_text" "| $criterion |" "MVP acceptance criterion $criterion is unrecorded"
 done
 assert_contains "$specification_text" 'Status: MVP released' "SPEC does not mark the MVP released"
-assert_contains "$ledger_text" 'Current milestone: MVP released; Phase 12 and later deferred' \
-    "implementation ledger does not mark the MVP released"
+assert_contains "$ledger_text" 'Current milestone: Phase 12 Tier 2 adapters' \
+    "implementation ledger does not identify the active backlog phase"
+
+copilot_research_contract=(
+    'Status: Normative implementation input for P12A-02'
+    'GitHub Copilot CLI 1.0.78'
+    '87982a909d52fcf095ee4458d3b5a69bbfd8ae614177115191b977a93df3d807'
+    'copilot --prompt PROMPT --silent --no-ask-user'
+    'COPILOT_PROVIDER_BASE_URL'
+    'no non-mutating'
+    'No unresolved interface question blocks P12A-02'
+)
+for evidence in "${copilot_research_contract[@]}"; do
+    assert_contains "$copilot_research_text" "$evidence" "Copilot revalidation omitted $evidence"
+done
 
 help_contract=(
     'aagent [OPTIONS] [PROMPT...]'
