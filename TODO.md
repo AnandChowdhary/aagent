@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: Phase 11 release readiness
+Current milestone: MVP released; Phase 12 and later deferred
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -769,25 +769,39 @@ Deliverable: installable, documented MVP with passing cross-platform CI
   Evidence: the clean default `scripts/release-gate.sh` completed locally with
   Bash and PowerShell 7, including both clean-room installer paths.
 
-- [ ] **P11-11 Run the full GitHub Actions gate.**
+- [x] **P11-11 Run the full GitHub Actions gate.**
   Require every matrix job at the exact release commit; rerun only to diagnose
   infrastructure flakiness, never to mask deterministic failures.
 
-- [ ] **P11-12 Audit all MVP acceptance criteria.**
+  Evidence: [main Test run 30981356014](https://github.com/AnandChowdhary/aagent/actions/runs/30981356014)
+  and [tagged Release run 30981749311](https://github.com/AnandChowdhary/aagent/actions/runs/30981749311)
+  passed at exact commit `50166f2a268b377e05f952687f59cac179858d28`.
+
+- [x] **P11-12 Audit all MVP acceptance criteria.**
   Record evidence for each item in `docs/spec/testing.md`, including exact test
   name or workflow job, and leave no criterion inferred from another.
 
-- [ ] **P11-13 Cut the first functional release.**
+  Evidence: [MVP acceptance evidence](docs/acceptance-evidence.md) maps all
+  twelve criteria to focused Bash/PowerShell suites and exact workflow jobs.
+
+- [x] **P11-13 Cut the first functional release.**
   Tag a reviewed commit, publish checksummed artifacts/install instructions,
   verify the remote artifact on macOS, Linux, and Windows, and publish known
   limitations without claiming live-provider testing that did not occur.
 
+  Evidence: [aagent 0.1.1](https://github.com/AnandChowdhary/aagent/releases/tag/v0.1.1)
+  contains the five expected assets; tagged run 30981749311 verified remote
+  installs on Linux, macOS, Windows Git Bash, and Windows PowerShell before
+  promotion to a final release.
+
 ### Phase 11 exit gate - MVP complete
 
-- [ ] Every task in Phases 1 through 11 is checked, every acceptance criterion
+- [x] Every task in Phases 1 through 11 is checked, every acceptance criterion
   has direct evidence, all required CI jobs pass at the release commit, and a
   clean machine can install and run `aagent --help`, `aagent providers`, and a
   fake or explicitly authorized real Tier 1 provider invocation.
+
+  Evidence: [MVP acceptance evidence](docs/acceptance-evidence.md).
 
 ## Phase 12 - Tier 2 adapters
 
@@ -1013,24 +1027,26 @@ Deliverable: repeatable updates without hidden runtime behavior changes
 This is the last checklist used before declaring the MVP complete. It does not
 replace the granular tasks above.
 
-- [ ] Phases 0 through 11 have no unchecked or blocked task.
+- [x] Phases 0 through 11 have no unchecked or blocked task.
 
-- [ ] Every row in the traceability table links to passing named tests or CI
+- [x] Every row in the traceability table links to passing named tests or CI
   jobs at the release commit.
 
-- [ ] `SPEC.md`, all `docs/spec/` contracts, help output, README, installers,
+- [x] `SPEC.md`, all `docs/spec/` contracts, help output, README, installers,
   and implementation agree.
 
-- [ ] No normal or diagnostic code path reads credential material, triggers
+- [x] No normal or diagnostic code path reads credential material, triggers
   login, sends a probe prompt, escalates permissions, or retries another agent
   after launch.
 
-- [ ] The release artifact is installed and smoke-tested on macOS, Linux,
+- [x] The release artifact is installed and smoke-tested on macOS, Linux,
   Windows Git Bash, and Windows PowerShell.
 
-- [ ] The selected provider and cost rationale are explainable, deterministic,
+- [x] The selected provider and cost rationale are explainable, deterministic,
   nonsecret, and identical across runners for the same discovered state.
 
-- [ ] Deferred work remains deferred: Tier 2 completeness, live quota-aware
+- [x] Deferred work remains deferred: Tier 2 completeness, live quota-aware
   routing, normalized structured output, and portable sessions are not required
   or implied by the MVP release.
+
+  Final evidence: [MVP acceptance evidence](docs/acceptance-evidence.md).

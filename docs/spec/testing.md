@@ -139,6 +139,11 @@ after every remote smoke test passes may the workflow promote the prerelease to
 the final GitHub Release. Release CI receives no provider credentials and sends
 no paid or model prompts.
 
+The first functional release and the exact evidence for every criterion are
+recorded in the [MVP acceptance evidence](../acceptance-evidence.md). That
+ledger names the release commit, passing workflow jobs, published checksums,
+focused Bash and PowerShell suites, and independent local install smoke.
+
 ## MVP acceptance criteria
 
 The implementation is complete only when:

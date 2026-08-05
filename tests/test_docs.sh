@@ -8,6 +8,9 @@ powershell_script="$project_root/aagent.ps1"
 fake_provider="$project_root/tests/helpers/fake-provider.sh"
 readme="$project_root/README.md"
 cli_contract="$project_root/docs/spec/cli-contract.md"
+acceptance_evidence="$project_root/docs/acceptance-evidence.md"
+specification="$project_root/SPEC.md"
+ledger="$project_root/TODO.md"
 test_dir="$(mktemp -d)"
 
 cleanup() {
@@ -30,6 +33,28 @@ assert_contains() {
 bash_help="$(bash "$aagent_script" --help)"
 readme_text="$(<"$readme")"
 contract_text="$(<"$cli_contract")"
+acceptance_text="$(<"$acceptance_evidence")"
+specification_text="$(<"$specification")"
+ledger_text="$(<"$ledger")"
+
+release_evidence_contract=(
+    'Status: Complete for aagent 0.1.1'
+    '50166f2a268b377e05f952687f59cac179858d28'
+    'actions/runs/30981356014'
+    'actions/runs/30981749311'
+    'releases/tag/v0.1.1'
+    '28e4fa20271c3e562f74cf88c7cafb93a11d2d618ccf5256591c91a1dba779bd'
+    'ae75ac0a8d0a9c5a6691cdc276c26748a639600544b628ab6a88a23f2aca4f60'
+)
+for evidence in "${release_evidence_contract[@]}"; do
+    assert_contains "$acceptance_text" "$evidence" "MVP acceptance evidence omitted $evidence"
+done
+for criterion in {1..12}; do
+    assert_contains "$acceptance_text" "| $criterion |" "MVP acceptance criterion $criterion is unrecorded"
+done
+assert_contains "$specification_text" 'Status: MVP released' "SPEC does not mark the MVP released"
+assert_contains "$ledger_text" 'Current milestone: MVP released; Phase 12 and later deferred' \
+    "implementation ledger does not mark the MVP released"
 
 help_contract=(
     'aagent [OPTIONS] [PROMPT...]'

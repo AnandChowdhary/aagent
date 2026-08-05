@@ -5,6 +5,9 @@ $aagentScript = Join-Path $projectRoot "aagent.ps1"
 $fakeProvider = Join-Path $projectRoot "tests/helpers/fake-provider.ps1"
 $readmePath = Join-Path $projectRoot "README.md"
 $contractPath = Join-Path $projectRoot "docs/spec/cli-contract.md"
+$acceptancePath = Join-Path $projectRoot "docs/acceptance-evidence.md"
+$specificationPath = Join-Path $projectRoot "SPEC.md"
+$ledgerPath = Join-Path $projectRoot "TODO.md"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
 function Assert-DocsContains([string] $Value, [string] $Expected, [string] $Message) {
@@ -14,6 +17,28 @@ function Assert-DocsContains([string] $Value, [string] $Expected, [string] $Mess
 $powershellHelp = (& pwsh -NoLogo -NoProfile -File $aagentScript --help | Out-String).Trim().Replace("`r", "")
 $readme = [IO.File]::ReadAllText($readmePath, $utf8)
 $contract = [IO.File]::ReadAllText($contractPath, $utf8)
+$acceptance = [IO.File]::ReadAllText($acceptancePath, $utf8)
+$specification = [IO.File]::ReadAllText($specificationPath, $utf8)
+$ledger = [IO.File]::ReadAllText($ledgerPath, $utf8)
+
+$releaseEvidenceContract = @(
+    "Status: Complete for aagent 0.1.1",
+    "50166f2a268b377e05f952687f59cac179858d28",
+    "actions/runs/30981356014",
+    "actions/runs/30981749311",
+    "releases/tag/v0.1.1",
+    "28e4fa20271c3e562f74cf88c7cafb93a11d2d618ccf5256591c91a1dba779bd",
+    "ae75ac0a8d0a9c5a6691cdc276c26748a639600544b628ab6a88a23f2aca4f60"
+)
+foreach ($evidence in $releaseEvidenceContract) {
+    Assert-DocsContains $acceptance $evidence "MVP acceptance evidence omitted $evidence"
+}
+foreach ($criterion in 1..12) {
+    Assert-DocsContains $acceptance "| $criterion |" "MVP acceptance criterion $criterion is unrecorded"
+}
+Assert-DocsContains $specification "Status: MVP released" "SPEC does not mark the MVP released"
+Assert-DocsContains $ledger "Current milestone: MVP released; Phase 12 and later deferred" `
+    "implementation ledger does not mark the MVP released"
 
 $helpContract = @(
     "aagent [OPTIONS] [PROMPT...]",

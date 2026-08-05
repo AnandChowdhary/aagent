@@ -1,8 +1,9 @@
 # aagent specification
 
-Status: Release candidate
+Status: MVP released
 Research snapshot: 2026-08-04
-Implementation status: Functional MVP; release verification in progress
+Implementation status: Functional MVP released as
+[v0.1.1](https://github.com/AnandChowdhary/aagent/releases/tag/v0.1.1)
 
 ## Summary
 
@@ -73,6 +74,7 @@ The specification is split by responsibility:
 | [Permissions, privacy, and safety](docs/spec/security.md) | Permission boundary, secret handling, injection resistance, and future safety policy |
 | [Introspection](docs/spec/introspection.md) | `providers`, `doctor`, and `--dry-run` behavior |
 | [Testing and acceptance](docs/spec/testing.md) | Required fixtures, platform matrix, and MVP completion gate |
+| [MVP acceptance evidence](docs/acceptance-evidence.md) | Exact release commit, CI jobs, checksums, and criterion-by-criterion sign-off |
 | [Post-MVP backlog](docs/spec/backlog.md) | Quota-aware routing, structured output, sessions, and other deferred features |
 | [Primary sources](docs/spec/sources.md) | First-party research references and popularity snapshot inputs |
 
