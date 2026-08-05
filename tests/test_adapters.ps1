@@ -148,7 +148,17 @@ $overrideNames = @(
 $environmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "PATH",
     "AAGENT_FAKE_RECORD_DIR", "AAGENT_FAKE_PROVIDER", "AAGENT_FAKE_INVOCATION_KIND",
-    "AAGENT_FAKE_RUN_STDOUT", "AAGENT_FAKE_RUN_STDERR", "AAGENT_FAKE_RUN_STATUS"
+    "AAGENT_FAKE_RUN_STDOUT", "AAGENT_FAKE_RUN_STDERR", "AAGENT_FAKE_RUN_STATUS",
+    "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR", "AAGENT_FAKE_PROBE_STATUS",
+    "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES",
+    "AAGENT_FAKE_CLAUDE_STDOUT", "AAGENT_FAKE_CLAUDE_STDERR", "AAGENT_FAKE_CLAUDE_STATUS",
+    "AAGENT_FAKE_CODEX_APP_SERVER_STDOUT", "AAGENT_FAKE_CODEX_APP_SERVER_STDERR",
+    "AAGENT_FAKE_CODEX_APP_SERVER_STATUS", "AAGENT_FAKE_CODEX_LOGIN_STDOUT",
+    "AAGENT_FAKE_CODEX_LOGIN_STDERR", "AAGENT_FAKE_CODEX_LOGIN_STATUS",
+    "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+    "CODEX_API_KEY", "OPENAI_API_KEY"
 ) + $overrideNames
 $originalEnvironment = @{}
 foreach ($name in $environmentNames) {
@@ -178,16 +188,16 @@ try {
     $env:XDG_CONFIG_HOME = $configDir
     $env:APPDATA = $appDataDir
     $env:PATH = "$fakeBin$([IO.Path]::PathSeparator)$($originalEnvironment['PATH'])"
-    foreach ($name in $overrideNames) {
-        [Environment]::SetEnvironmentVariable($name, $null, "Process")
+    foreach ($name in $environmentNames) {
+        if ($name -notin @("HOME", "XDG_CONFIG_HOME", "APPDATA", "PATH")) {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
     }
 
     $providers = @("claude", "codex", "opencode", "amp", "gemini")
     foreach ($provider in $providers) {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }
-    $env:AAGENT_FAKE_INVOCATION_KIND = "run"
-
     $prompt = "fix the `"quoted`" issue 🌍`nand keep formatting"
     $stdinPayload = "stdin only`nsecond line`n`n"
     $bothPrompt = "review this change`ncarefully"
@@ -201,6 +211,8 @@ try {
         $env:AAGENT_FAKE_RUN_STDOUT = "provider-stdout-$provider"
         $env:AAGENT_FAKE_RUN_STDERR = "provider-stderr-$provider"
         $env:AAGENT_FAKE_RUN_STATUS = "0"
+        $env:AAGENT_FAKE_CLAUDE_STDOUT = '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max","apiProvider":"claude.ai"}'
+        $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}}'
 
         $model = Get-AdapterModel $provider
         $displayName = Get-AdapterDisplayName $provider
@@ -217,7 +229,7 @@ try {
         }
 
         $result = Invoke-AdapterCli "$provider-prompt" ([string[]] $promptArguments)
-        Assert-AdapterEqual $result.Status 0 "$provider prompt launch failed."
+        Assert-AdapterEqual $result.Status 0 "$provider prompt launch failed. stderr: $($result.Stderr)"
         Assert-AdapterEqual $result.Stdout "provider-stdout-$provider" "$provider stdout differs."
         Assert-AdapterEqual `
             $result.Stderr `
@@ -301,7 +313,11 @@ try {
     }
 } finally {
     foreach ($name in $environmentNames) {
-        [Environment]::SetEnvironmentVariable($name, $originalEnvironment[$name], "Process")
+        if ($null -eq $originalEnvironment[$name]) {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        } else {
+            [Environment]::SetEnvironmentVariable($name, $originalEnvironment[$name], "Process")
+        }
     }
     if (Test-Path -LiteralPath $testDir) {
         Remove-Item -LiteralPath $testDir -Recurse -Force

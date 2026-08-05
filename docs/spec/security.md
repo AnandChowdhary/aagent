@@ -34,9 +34,13 @@ The wrapper may call only the passive provider interfaces enumerated in
 - retain raw authentication probe responses; or
 - emit account email, organization, token fingerprint, or other account PII.
 
-Environment variables are inspected by name and presence only. Any child-only
-authentication adjustment reports the variable name, never its value, and must
-leave the parent environment unchanged.
+Environment variables are inspected by name and presence only during
+classification. The one MVP value-handling exception is the documented Codex
+fallback: after Codex has been selected as `payg_byok`, a present
+`OPENAI_API_KEY` may be copied opaquely to child `CODEX_API_KEY`. The value must
+not be compared, transformed, retained, or emitted. Every child-only
+authentication adjustment reports variable names only and must leave the
+wrapper and caller environments unchanged.
 
 ## Data and command safety
 

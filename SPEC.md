@@ -2,7 +2,7 @@
 
 Status: Draft
 Research snapshot: 2026-08-04
-Implementation scope of this revision: Documentation only
+Implementation status: MVP implementation in progress through Phase 9
 
 ## Summary
 

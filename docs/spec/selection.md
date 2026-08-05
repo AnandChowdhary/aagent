@@ -222,12 +222,25 @@ enterprise gateways, or credential-helper configuration. Those signals may
 represent intentional organization routing; classify them as their documented
 path or `unknown` instead.
 
+For Claude, the conservative environment allowlist includes the documented
+Bedrock, Mantle, Vertex, Foundry, and Claude Platform on AWS selectors and base
+URLs; `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
+`ANTHROPIC_CUSTOM_HEADERS`, Foundry resource/key variables, and the Bedrock
+bearer-token variable. A present custom-route signal prevents every
+subscription-shadow adjustment. An `apiKeySource` helper or status-reported
+gateway/cloud path has the same effect even when it has no visible environment
+variable.
+
 Any child-environment adjustment is disclosed by variable name, never value:
 
 ```text
-aagent: using Claude subscription; ignoring ANTHROPIC_API_KEY for this child process
+aagent: using claude subscription; omitting ANTHROPIC_API_KEY from the child process
 ```
 
 `--auth-policy native` preserves the provider's environment and authentication
 precedence exactly, disables both removal and mapping, and classifies the
 candidate by the path the untouched provider would actually use.
+
+An explicit Claude or Codex choice bypasses ranking but still runs that selected
+provider's passive probe when needed to enforce `prefer-included`; it never
+probes an unselected provider.
