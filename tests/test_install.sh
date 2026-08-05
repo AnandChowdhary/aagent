@@ -60,30 +60,30 @@ run_installer() {
     set -e
 }
 
-run_installer "$test_dir/local" AAGENT_SOURCE="$aagent_script" AAGENT_EXPECTED_VERSION=0.1.0-dev
+run_installer "$test_dir/local" AAGENT_SOURCE="$aagent_script" AAGENT_EXPECTED_VERSION=0.1.0
 assert_equals "$AAGENT_TEST_STATUS" 0 "local Bash install failed"
 [[ -x "$install_dir/aagent" ]] || fail "installed Bash runner is not executable"
-assert_equals "$("$install_dir/aagent" --version)" "aagent 0.1.0-dev" "installed version differs"
+assert_equals "$("$install_dir/aagent" --version)" "aagent 0.1.0" "installed version differs"
 assert_contains "$("$install_dir/aagent" --help)" "aagent providers" "installed help is incomplete"
 assert_equals "$(find "$install_dir" -name '.aagent.*' -o -name '.aagent-checksums.*' | wc -l | tr -d ' ')" \
     0 "successful install left staging files"
 
 pipe_install_dir="$test_dir/pipe install/bin"
 env INSTALL_DIR="$pipe_install_dir" AAGENT_SOURCE="$aagent_script" \
-    AAGENT_EXPECTED_VERSION=0.1.0-dev bash <"$install_script" >/dev/null
-assert_equals "$("$pipe_install_dir/aagent" --version)" "aagent 0.1.0-dev" \
+    AAGENT_EXPECTED_VERSION=0.1.0 bash <"$install_script" >/dev/null
+assert_equals "$("$pipe_install_dir/aagent" --version)" "aagent 0.1.0" \
     "pipe-to-Bash install did not execute"
 
 no_home_install_dir="$test_dir/no home/bin"
 env -u HOME INSTALL_DIR="$no_home_install_dir" AAGENT_SOURCE="$aagent_script" \
     bash "$install_script" >/dev/null
-assert_equals "$("$no_home_install_dir/aagent" --version)" "aagent 0.1.0-dev" \
+assert_equals "$("$no_home_install_dir/aagent" --version)" "aagent 0.1.0" \
     "explicit install directory unexpectedly required HOME"
 
 printf '%s\n' 'old-install' >"$install_dir/aagent"
 run_installer "$test_dir/replace" AAGENT_SOURCE="$aagent_script"
 assert_equals "$AAGENT_TEST_STATUS" 0 "existing Bash install was not replaced"
-assert_equals "$("$install_dir/aagent" --version)" "aagent 0.1.0-dev" "replacement version differs"
+assert_equals "$("$install_dir/aagent" --version)" "aagent 0.1.0" "replacement version differs"
 
 invalid_runner="$test_dir/invalid runner.sh"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 23' >"$invalid_runner"
@@ -120,9 +120,9 @@ run_installer "$test_dir/remote" \
     PATH="$fake_bin:$original_path" \
     AAGENT_SOURCE=https://downloads.example.test/aagent.sh \
     AAGENT_CHECKSUM_SOURCE=https://downloads.example.test/SHA256SUMS \
-    AAGENT_EXPECTED_VERSION=0.1.0-dev
+    AAGENT_EXPECTED_VERSION=0.1.0
 assert_equals "$AAGENT_TEST_STATUS" 0 "checksummed remote Bash install failed"
-assert_equals "$("$install_dir/aagent" --version)" "aagent 0.1.0-dev" "remote installed version differs"
+assert_equals "$("$install_dir/aagent" --version)" "aagent 0.1.0" "remote installed version differs"
 
 cp "$install_dir/aagent" "$test_dir/remote-known-good"
 printf '%064d  aagent.sh\n' 0 >"$remote_dir/SHA256SUMS"

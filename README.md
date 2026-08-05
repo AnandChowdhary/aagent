@@ -26,7 +26,11 @@ does not install or sign in to coding agents.
 ### macOS, Linux, Git Bash, or WSL
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AnandChowdhary/aagent/main/install.sh | bash
+AAGENT_VERSION=0.1.0
+AAGENT_BASE_URL="https://github.com/AnandChowdhary/aagent/releases/download/v${AAGENT_VERSION}"
+curl -fsSL "$AAGENT_BASE_URL/install.sh" |
+  AAGENT_DOWNLOAD_BASE_URL="$AAGENT_BASE_URL" \
+  AAGENT_EXPECTED_VERSION="$AAGENT_VERSION" bash
 export PATH="$HOME/.local/bin:$PATH"
 aagent --version
 ```
@@ -39,7 +43,12 @@ untouched. Set `INSTALL_DIR` to choose a different destination.
 ### Windows PowerShell 7
 
 ```powershell
-irm https://raw.githubusercontent.com/AnandChowdhary/aagent/main/install.ps1 | iex
+$AagentVersion = "0.1.0"
+$AagentBaseUrl = "https://github.com/AnandChowdhary/aagent/releases/download/v$AagentVersion"
+$env:AAGENT_DOWNLOAD_BASE_URL = $AagentBaseUrl
+$env:AAGENT_EXPECTED_VERSION = $AagentVersion
+irm "$AagentBaseUrl/install.ps1" | iex
+Remove-Item Env:AAGENT_DOWNLOAD_BASE_URL, Env:AAGENT_EXPECTED_VERSION
 $env:Path = "$HOME/.local/bin;$env:Path"
 aagent --version
 ```
@@ -47,6 +56,11 @@ aagent --version
 The PowerShell installer verifies and atomically installs `aagent.ps1` plus an
 `aagent.cmd` launcher in `%USERPROFILE%\.local\bin`. Add that directory to the
 user `PATH` to keep `aagent` available in new terminals.
+
+These commands pin the installer, runner, and checksum manifest to the same
+GitHub Release. You can inspect the published `SHA256SUMS` before installing.
+The repository's `main` branch remains available for development snapshots,
+but it is not the versioned release channel.
 
 You can also clone the repository and run `./aagent.sh` or
 `pwsh -File ./aagent.ps1` directly.

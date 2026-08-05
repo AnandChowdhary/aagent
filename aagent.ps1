@@ -5,7 +5,7 @@ Set-Variable -Name AagentExitUsage -Value 64 -Option Constant -Scope Script
 Set-Variable -Name AagentExitUnavailable -Value 69 -Option Constant -Scope Script
 Set-Variable -Name AagentExitSoftware -Value 70 -Option Constant -Scope Script
 Set-Variable -Name AagentExitConfig -Value 78 -Option Constant -Scope Script
-Set-Variable -Name AagentVersion -Value "0.1.0-dev" -Option Constant -Scope Script
+Set-Variable -Name AagentVersion -Value "0.1.0" -Option Constant -Scope Script
 Set-Variable -Name AagentPopularitySnapshot -Value "2026-08-04" -Option Constant -Scope Script
 Set-Variable -Name AagentScriptPath -Value $PSCommandPath -Option Constant -Scope Script
 

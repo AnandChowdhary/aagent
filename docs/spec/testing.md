@@ -123,6 +123,22 @@ diff checks, and clean-room Bash and PowerShell installer smoke tests. The
 normal GitHub Actions workflow runs the same command in a fresh Linux checkout;
 the platform matrix remains the authority for macOS and Windows parity.
 
+## Release workflow
+
+The `Release` GitHub Actions workflow validates release-affecting pull requests
+without publishing. A pushed `v*` tag must match the stable version reported by
+both runners. At that exact tagged commit the workflow reruns the Bash matrix,
+Windows PowerShell suite, and complete release gate; validates and packages the
+four scripts plus `SHA256SUMS`; and creates a prerelease only after those jobs
+pass.
+
+The published prerelease is then installed from its remote GitHub asset URLs on
+Linux, macOS, Windows Git Bash, and Windows PowerShell. Each job runs installed
+help, version, `providers`, and a credential-free fake Codex invocation. Only
+after every remote smoke test passes may the workflow promote the prerelease to
+the final GitHub Release. Release CI receives no provider credentials and sends
+no paid or model prompts.
+
 ## MVP acceptance criteria
 
 The implementation is complete only when:
