@@ -1,135 +1,310 @@
 # aagent
 
-Run any CLI coding agent with a single command.
+Run whichever CLI coding agent you already have with one command.
 
-`aagent` is being implemented in the phases tracked by `TODO.md`. The current
-build implements the complete wrapper grammar, prompt/stdin resolution,
-working-directory validation, `--help`, `--version`, the static provider
-registry, and side-effect-free executable discovery. Provider process execution
-now has a shared launch-plan contract and safe Bash/PowerShell execution core.
-The five Tier 1 adapters (Claude, Codex, OpenCode, Amp, and Gemini) can be run
-with an explicit provider selected by command line, environment, or strict user
-configuration. Bounded passive authentication probes now classify safe local
-evidence for every Tier 1 provider without opening credential stores or sending
-model requests. With no explicit provider, deterministic automatic selection
-prefers ready included accounts over metered API paths, then breaks exact ties
-by authentication confidence, configured priority, the frozen popularity
-prior, and stable registry order. Safe introspection is available through
-`aagent providers`, `aagent doctor [PROVIDER]`, and `--dry-run`; these commands
-use bounded passive probes and never start a model run.
-
-The default `prefer-included` authentication policy also keeps metered API
-variables from silently shadowing a confirmed Claude or ChatGPT account. Any
-adjustment is limited to the selected child process, disclosed by environment
-variable name, and redacted in dry-run output. `--auth-policy native` disables
-all such set/omit behavior.
-
-```bash
-aagent "say hello"
-aagent --provider claude "say hello"
-aagent --provider codex --model gpt-5.4 "explain this repository"
-git diff | aagent --provider gemini "summarize these changes"
-aagent providers
-aagent doctor codex
-aagent --dry-run "say hello"
+```console
+$ aagent "say hello"
+aagent: using codex (included_confirmed, ChatGPT Pro; only eligible provider)
+Hello!
 ```
 
-Optional user configuration lives at
-`${XDG_CONFIG_HOME:-$HOME/.config}/aagent/config` on macOS/Linux and
-`%APPDATA%\aagent\config` on Windows:
+`aagent` discovers installed coding-agent CLIs, checks only passive non-secret
+authentication signals, chooses one deterministically, and runs it headlessly.
+It prefers an included subscription or seat over a metered API path so that the
+default choice minimizes marginal cost. You can always select a provider
+explicitly.
 
-```ini
-provider=codex
-auth_policy=prefer-included
-priority=codex,claude,opencode
-allow_local=false
-```
+The core is dependency-free: `aagent.sh` supports Bash and `aagent.ps1`
+supports PowerShell 7. Authentication, billing, models, tools, repository
+instructions, and permissions remain owned by the selected provider.
 
-The file is strict inert `key=value` data; it is never sourced. Command-line
-options override `AAGENT_*` environment variables, which override this file.
-See the [command-line contract](docs/spec/cli-contract.md#configuration) for
-the exact grammar and precedence table.
+## Install
 
-## Specification
+Install at least one [supported provider](#supported-providers) first. `aagent`
+does not install or sign in to coding agents.
 
-- [SPEC.md](SPEC.md) is the product contract and index to the focused specification documents.
-- [TODO.md](TODO.md) is the authoritative, phase-gated implementation ledger.
-
-## Installation
-
-On macOS and Linux:
+### macOS, Linux, Git Bash, or WSL
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AnandChowdhary/aagent/main/install.sh | bash
-"$HOME/.local/bin/aagent" --help
+export PATH="$HOME/.local/bin:$PATH"
+aagent --version
 ```
 
-The installer downloads the runner and `SHA256SUMS` independently, verifies the
-runner before executing it, smoke-tests `--help` and `--version`, and then
-replaces any existing install with a same-directory move. A failed download,
-checksum, or smoke test leaves the current installation untouched.
+The installer downloads `aagent.sh` and `SHA256SUMS` independently, verifies
+the checksum, smoke-tests `--help` and `--version`, and atomically installs
+`~/.local/bin/aagent`. A failed download or check leaves an existing install
+untouched. Set `INSTALL_DIR` to choose a different destination.
 
-On Windows with PowerShell 7:
+### Windows PowerShell 7
 
 ```powershell
 irm https://raw.githubusercontent.com/AnandChowdhary/aagent/main/install.ps1 | iex
-& "$HOME/.local/bin/aagent.cmd" --help
+$env:Path = "$HOME/.local/bin;$env:Path"
+aagent --version
 ```
 
-The PowerShell installer writes both `aagent.ps1` and an `aagent.cmd` launcher
-to `%USERPROFILE%\.local\bin`. Add that directory to `PATH` when prompted.
+The PowerShell installer verifies and atomically installs `aagent.ps1` plus an
+`aagent.cmd` launcher in `%USERPROFILE%\.local\bin`. Add that directory to the
+user `PATH` to keep `aagent` available in new terminals.
 
-## Manual usage
+You can also clone the repository and run `./aagent.sh` or
+`pwsh -File ./aagent.ps1` directly.
 
-Run the Bash script directly on macOS, Linux, or Windows with Git Bash or WSL:
+## Use
+
+### Bash
 
 ```bash
-./aagent.sh --help
-./aagent.sh --version
+# Let aagent choose.
+aagent "explain this repository"
+
+# Choose a provider or provider-native model.
+aagent --provider claude --model sonnet "review the current diff"
+
+# Use piped input as the prompt.
+git diff | aagent --provider gemini
+
+# Keep an instruction separate from piped context.
+cat issue.md | aagent "fix the issue described in this document"
+
+# Run the provider from another directory.
+aagent --cwd ../service "run the tests and explain any failures"
+
+# Deliberately pass native options after --.
+aagent -P codex "fix the tests" -- --sandbox workspace-write
 ```
 
-Run the native PowerShell script on Windows:
+### PowerShell
 
 ```powershell
-pwsh ./aagent.ps1 --help
-pwsh ./aagent.ps1 --version
+# Let aagent choose.
+aagent "explain this repository"
+
+# Choose a provider.
+aagent --provider codex "review the current diff"
+
+# Send a file as context with a separate instruction.
+Get-Content -Raw .\issue.md | aagent --provider claude "fix this issue"
+
+# Deliberately pass native options after --.
+aagent -P gemini "apply the refactor" -- --approval-mode auto_edit
 ```
 
-## Development
+Prompt arguments are joined with one space. With no prompt, redirected stdin
+becomes the prompt. With both, the positional prompt is the instruction and
+stdin is additional context. `aagent` never opens an interactive agent merely
+because input is missing.
 
-Run the Bash smoke tests:
+Use `-P`/`--provider` for an unconditional provider choice and `-m`/`--model`
+for an opaque provider-native model ID. Model names are not translated between
+vendors. Amp has no documented general per-run model flag, so requesting one
+with Amp fails before launch.
+
+Everything after the first wrapper-level `--` is passed as provider-native
+arguments. This is the escape hatch for native sandboxes, approval modes,
+tools, budgets, and output formats. Those options can grant substantial access;
+`aagent` preserves them because their presence is an explicit user choice.
+
+## Smart selection and cost policy
+
+Without an explicit provider, `aagent` considers installed Tier 1 candidates
+using this fixed tuple, from most to least important:
+
+```text
+readiness
+funding class
+authentication confidence
+configured priority
+popularity prior
+stable registry order
+```
+
+The funding classes are, in order:
+
+1. confirmed included subscription or paid seat;
+2. account with included or free quota but an unknown exact tier;
+3. confirmed positive prepaid credits;
+4. an explicitly enabled local model;
+5. direct pay-as-you-go API or BYOK; and
+6. unknown funding.
+
+A confirmed Claude Max account therefore outranks Claude or Codex using only a
+metered API key. A confirmed ChatGPT plan similarly outranks an Anthropic API
+key. When two included plans are otherwise equivalent, configured priority is
+used before the frozen popularity prior. `--priority` never crosses readiness,
+funding, or confidence boundaries.
+
+The selected provider, funding class, and decisive reason are written to
+stderr. `--quiet` hides only this wrapper notice; it does not hide provider
+diagnostics. Selection has no telemetry, network popularity lookup, previous-
+run preference, or guessed quota. Unknown quota is neutral rather than treated
+as empty or unlimited.
+
+Explicit selection precedence is:
+
+1. `--provider`;
+2. `AAGENT_PROVIDER`;
+3. `provider` in the user configuration file; and
+4. automatic selection.
+
+An explicit missing or unsupported provider is an error. Authentication and
+runtime failures from an explicitly selected installed provider remain that
+provider's responsibility. After any provider run starts, `aagent` never
+retries the prompt with another agent: the first process may already have
+changed files or spent tokens.
+
+## Supported providers
+
+Tier 1 adapters are included in the first release:
+
+| Provider | One-shot command | Per-run model | Passive local evidence | Important native behavior |
+| --- | --- | --- | --- | --- |
+| [Codex CLI](https://github.com/openai/codex) (`codex`) | `codex exec` | `--model` | local app-server account read, then `login status` fallback | Read-only sandbox by default; broader sandboxes are explicit. It may require a Git repository unless the user passes its native skip option. |
+| [Claude Code](https://code.claude.com/docs/en/getting-started) (`claude`) | `claude --print` | `--model` | `auth status --json` | Native permission modes and repository configuration remain active. `aagent` never adds `--bare` or a permission bypass. |
+| [OpenCode](https://opencode.ai/docs/) (`opencode`) | `opencode run` | `--model` | `auth list` plus non-secret selected-provider configuration | Most tools are allowed by native defaults; `aagent` never adds `--auto`. |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) | `gemini --prompt` | `--model` | documented `security.auth.selectedType` setting | Approval and sandbox modes remain native; `aagent` never adds `yolo`. |
+| [Amp](https://ampcode.com/manual) (`amp`) | `amp --execute` | not supported | account-token presence only | Amp documents that it uses tools without asking by default. Omitting an unsafe flag does not make it read-only. |
+
+Installations are discovered from `PATH`. Advanced users can override an exact
+executable with `AAGENT_CODEX_BIN`, `AAGENT_CLAUDE_BIN`,
+`AAGENT_OPENCODE_BIN`, `AAGENT_GEMINI_BIN`, or `AAGENT_AMP_BIN`.
+
+`aagent providers` also lists planned adapters, including Cursor's separate
+`agent` executable, as unsupported rather than confusing it with `aagent`.
+
+## Authentication policy
+
+The default `prefer-included` policy prevents a metered environment variable
+from silently shadowing a confirmed stored subscription when the provider
+documents that behavior. The adjustment is limited to the selected child
+process and reported by variable name only:
+
+- for a confirmed Claude subscription, a shadowing `ANTHROPIC_API_KEY` can be
+  omitted from the Claude child;
+- for confirmed ChatGPT-backed Codex, a shadowing `CODEX_API_KEY` can be
+  omitted from the Codex child; and
+- when metered Codex is deliberately selected, a present `OPENAI_API_KEY` can
+  be copied opaquely to child `CODEX_API_KEY` if needed.
+
+The caller's environment is never modified. Use
+`--auth-policy native` or `AAGENT_AUTH_POLICY=native` when the provider should
+receive its environment exactly as-is.
+
+Passive probes are bounded, non-interactive, and fail safely to `unknown`.
+They do not read stored token files or keychains, invoke credential helpers,
+start login, open a browser, contact a model, or ask the model about quota.
+
+## Configuration
+
+The optional user configuration file is:
+
+- `${XDG_CONFIG_HOME:-$HOME/.config}/aagent/config` on macOS and Linux; or
+- `%APPDATA%\aagent\config` on Windows.
+
+```ini
+# Strict inert key=value data; this file is never sourced.
+provider=codex
+auth_policy=prefer-included
+priority=codex,claude,opencode,gemini,amp
+allow_local=false
+```
+
+Supported settings use command line, then environment, then user config, then
+the documented default:
+
+| Setting | Command line | Environment | Default |
+| --- | --- | --- | --- |
+| provider | `--provider` | `AAGENT_PROVIDER` | automatic |
+| authentication | `--auth-policy` | `AAGENT_AUTH_POLICY` | `prefer-included` |
+| tie-break priority | `--priority` | `AAGENT_PRIORITY` | empty |
+| local candidates | `--allow-local true\|false` | `AAGENT_ALLOW_LOCAL` | `false` |
+
+Comments must begin with `#` after optional leading whitespace. Inline comments,
+quoted values, duplicate keys, and malformed lines are not accepted. Unknown
+keys are warnings during a normal run and errors in `doctor`.
+
+## Inspect and troubleshoot
+
+```bash
+aagent providers
+aagent doctor
+aagent doctor codex
+aagent --dry-run "explain this repository"
+```
+
+- `providers` shows every adapter's installed/auth status, funding class,
+  selection state, and safe reason.
+- `doctor [PROVIDER]` adds wrapper/platform data, resolved paths, bounded safe
+  versions, capability metadata, and provider-specific safety notes.
+- `--dry-run` resolves the real selection, child environment plan, cwd, stdin
+  mode, and escaped command without starting the provider or printing the
+  prompt/context.
+
+These commands never log in or submit a prompt. They discard raw probe output
+and do not print account email, organization, IDs, credential paths, token
+fingerprints, or secret values.
+
+Wrapper-owned exit statuses are stable:
+
+| Status | Meaning |
+| ---: | --- |
+| `0` | wrapper operation or launched provider succeeded |
+| `64` | invalid usage or unsupported requested capability |
+| `69` | no compatible provider executable is available |
+| `70` | internal wrapper failure before provider launch |
+| `78` | invalid wrapper configuration |
+
+Once a provider starts, its stdout, stderr, signals, and exact exit status pass
+through without remapping.
+
+## Platforms
+
+| Platform | Runner | Install/launch notes |
+| --- | --- | --- |
+| macOS | Bash | `install.sh`; provider support still applies |
+| Linux | Bash | `install.sh` |
+| Windows | PowerShell 7 | `install.ps1` creates `aagent.ps1` and `aagent.cmd` |
+| Windows Git Bash | Bash | `install.sh`; use providers that support native Windows/Git Bash |
+| Windows WSL | Bash | Treated as Linux; install providers inside the WSL environment |
+
+GitHub Actions runs the complete Bash suite on Linux, macOS, and Windows Git
+Bash, plus the complete PowerShell suite on Windows. A separate weekly
+credential-free workflow installs the current Tier 1 CLIs and verifies only
+their documented help/version command surfaces.
+
+## Safety boundary and limitations
+
+`aagent` is a compatibility layer, not a sandbox. It never generates a
+permission-escalation flag, evaluates prompts as code, sources configuration,
+or changes provider configuration. Native options supplied after `--` and each
+provider's installed defaults are the user's responsibility.
+
+The first release deliberately does not:
+
+- install, update, authenticate, or configure providers;
+- normalize vendor model names, structured events, sessions, tool calls,
+  token usage, or exact cost;
+- measure live quota or compare incompatible usage windows;
+- infer that an API-shaped account key is necessarily pay-as-you-go;
+- support the planned Tier 2 adapters for real runs; or
+- fall back to another provider after launch.
+
+For the exact contracts and research boundary, start with [SPEC.md](SPEC.md).
+Implementation order and verification evidence live in [TODO.md](TODO.md).
+
+## Develop
 
 ```bash
 bash ./tests/test_aagent.sh
+pwsh -NoProfile -File ./tests/test_aagent.ps1
 ```
 
-Run the PowerShell smoke tests:
-
-```powershell
-pwsh ./tests/test_aagent.ps1
-```
-
-GitHub Actions runs the Bash suite on Linux, macOS, and Windows, and the
-PowerShell suite on Windows. Both entrypoints include atomic installation,
-strict configuration, passive probes, deterministic selection, child
-authentication policy, process launch, introspection, security audits, and
-Tier 1 adapter contract tests.
-
-The test entrypoints create an isolated home, configuration directory, and
-controlled `PATH`. Tier 1 provider behavior is simulated by credential-free
-fake executables documented in
-[tests/helpers/README.md](tests/helpers/README.md); normal tests never invoke a
-locally installed coding agent. Launch tests verify argument boundaries, exact
-stdin, child-only cwd and environment changes, stdout/stderr separation, native
-statuses, interruption behavior where CI supports it, and redacted dry-runs.
-Adapter snapshots additionally prove provider-specific command order, all three
-input modes, model behavior, native options, safety defaults, and one-run-only
-failure handling without credentials or network requests.
-
-The security fixtures reject generated permission-escalation flags, ban
-command-string evaluation, place traps at credential-file and credential-helper
-boundaries, fuzz user-controlled arguments, and distinguish wrapper-owned
-statuses from identical statuses returned by a launched provider.
+Tests use isolated homes, controlled `PATH` values, and credential-free fake
+providers. They cover parsing, discovery, process fidelity, all Tier 1 command
+shapes, passive probes, selection, child-only auth policy, introspection,
+security, installation, and compatibility drift without invoking locally
+installed coding agents or paid prompts.
 
 ## License
 
