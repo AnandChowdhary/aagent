@@ -264,12 +264,12 @@ try {
     $config.Quiet = $true
     $env:AAGENT_FAKE_RUN_STDOUT = ""
     $env:AAGENT_FAKE_RUN_STDERR = ""
-    foreach ($expectedStatus in @(0, 23, 64, 78, 95, 127, 130, 143, 255)) {
+    foreach ($expectedStatus in @(0, 23, 64, 69, 70, 78, 95, 127, 130, 143, 255)) {
         $env:AAGENT_FAKE_RUN_STATUS = [string] $expectedStatus
         $result = Invoke-LaunchDriver $config (Join-Path $testDir "status-$expectedStatus.json")
         Assert-LaunchEqual $result.Status $expectedStatus "Status $expectedStatus was remapped."
     }
-    Assert-LaunchEqual ([IO.File]::ReadAllText((Join-Path $recordDir "run.count"), $utf8).Trim()) "12" "One launch did not produce exactly one provider run."
+    Assert-LaunchEqual ([IO.File]::ReadAllText((Join-Path $recordDir "run.count"), $utf8).Trim()) "14" "One launch did not produce exactly one provider run."
 } finally {
     foreach ($name in $environmentNames) {
         [Environment]::SetEnvironmentVariable($name, $originalEnvironment[$name], "Process")

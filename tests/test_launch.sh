@@ -181,12 +181,12 @@ assert_equals "$(tr -d '\r\n' < "$record_dir/run.count")" "3" "dry-run launched 
 
 export AAGENT_FAKE_RUN_STDOUT=""
 export AAGENT_FAKE_RUN_STDERR=""
-for expected_status in 0 23 64 78 95 127 255; do
+for expected_status in 0 23 64 69 70 78 95 127 255; do
     export AAGENT_FAKE_RUN_STATUS="$expected_status"
     actual_status="$(run_plan "$test_dir/status-$expected_status.stdout" "$test_dir/status-$expected_status.stderr" 0 1)"
     assert_equals "$actual_status" "$expected_status" "status $expected_status was remapped"
 done
-assert_equals "$(tr -d '\r\n' < "$record_dir/run.count")" "10" "one launch did not produce exactly one provider run"
+assert_equals "$(tr -d '\r\n' < "$record_dir/run.count")" "12" "one launch did not produce exactly one provider run"
 
 export AAGENT_FAKE_RUN_DELAY="30"
 export AAGENT_FAKE_RUN_STATUS="0"
@@ -198,7 +198,7 @@ AAGENT_LAUNCH_NOTICE="using generic fake provider"
 ) &
 launcher_pid=$!
 
-signal_record="$record_dir/generic.run.11.record"
+signal_record="$record_dir/generic.run.13.record"
 for _ in {1..200}; do
     [[ -f "$signal_record" ]] && break
     sleep 0.01
@@ -222,6 +222,6 @@ done
 if kill -0 "$provider_pid" 2>/dev/null; then
     fail "terminated provider remained orphaned"
 fi
-assert_equals "$(tr -d '\r\n' < "$record_dir/run.count")" "11" "termination started a fallback provider"
+assert_equals "$(tr -d '\r\n' < "$record_dir/run.count")" "13" "termination started a fallback provider"
 
 printf 'Launch Bash tests passed.\n'

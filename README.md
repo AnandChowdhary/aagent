@@ -14,7 +14,9 @@ evidence for every Tier 1 provider without opening credential stores or sending
 model requests. With no explicit provider, deterministic automatic selection
 prefers ready included accounts over metered API paths, then breaks exact ties
 by authentication confidence, configured priority, the frozen popularity
-prior, and stable registry order.
+prior, and stable registry order. Safe introspection is available through
+`aagent providers`, `aagent doctor [PROVIDER]`, and `--dry-run`; these commands
+use bounded passive probes and never start a model run.
 
 The default `prefer-included` authentication policy also keeps metered API
 variables from silently shadowing a confirmed Claude or ChatGPT account. Any
@@ -27,6 +29,9 @@ aagent "say hello"
 aagent --provider claude "say hello"
 aagent --provider codex --model gpt-5.4 "explain this repository"
 git diff | aagent --provider gemini "summarize these changes"
+aagent providers
+aagent doctor codex
+aagent --dry-run "say hello"
 ```
 
 Optional user configuration lives at
@@ -99,7 +104,7 @@ pwsh ./tests/test_aagent.ps1
 GitHub Actions runs the Bash suite on Linux, macOS, and Windows, and the
 PowerShell suite on Windows. Both entrypoints include configuration, passive
 probe, deterministic selection, child authentication policy, process-launch,
-and Tier 1 adapter contract tests.
+introspection, security-audit, and Tier 1 adapter contract tests.
 
 The test entrypoints create an isolated home, configuration directory, and
 controlled `PATH`. Tier 1 provider behavior is simulated by credential-free
@@ -111,6 +116,11 @@ statuses, interruption behavior where CI supports it, and redacted dry-runs.
 Adapter snapshots additionally prove provider-specific command order, all three
 input modes, model behavior, native options, safety defaults, and one-run-only
 failure handling without credentials or network requests.
+
+The security fixtures reject generated permission-escalation flags, ban
+command-string evaluation, place traps at credential-file and credential-helper
+boundaries, fuzz user-controlled arguments, and distinguish wrapper-owned
+statuses from identical statuses returned by a launched provider.
 
 ## License
 

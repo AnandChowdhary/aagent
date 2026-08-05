@@ -4,9 +4,9 @@ Status: Normative for the MVP
 
 ## `aagent providers`
 
-Lists every known adapter, resolution path, passive authentication result,
-funding class, and selection reason without logging in or contacting the
-network:
+Lists every known adapter in stable registry order with its discovery or
+passive authentication status, funding class, selected flag, and selection or
+diagnostic reason without logging in or contacting the network:
 
 ```text
 ID        STATUS   FUNDING               SELECTED  REASON
@@ -16,9 +16,9 @@ gemini    missing  unknown               no        executable missing
 cursor    ready    included_account      no        lower funding class
 ```
 
-Paths and versions may be included in a verbose form. Account email,
-organization, token fingerprints, credential values, and raw status output are
-never displayed.
+Resolved paths and bounded, allowlisted version strings are included by
+`doctor`. Account email, organization, token fingerprints, credential values,
+raw status output, and credential-file paths are never displayed.
 
 The command exits `0` when inspection completes, including when no provider is
 installed. Invalid configuration still follows the configuration error rules
@@ -44,6 +44,8 @@ provider lacks a stable, non-interactive status probe.
 Doctor must not open a browser, begin login, display credentials, or send a
 model request. With a provider argument, an unknown provider is a usage error;
 a known but missing provider is reported diagnostically rather than launched.
+Provider-scoped doctor limits provider subprocesses to the requested adapter
+and deliberately does not perform global automatic selection.
 
 ## `--dry-run`
 

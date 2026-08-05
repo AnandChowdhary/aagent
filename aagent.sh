@@ -1990,6 +1990,34 @@ aagent_reset_adapter_plan() {
     AAGENT_ADAPTER_ERROR=""
 }
 
+aagent_is_unsafe_permission_flag() {
+    case "$1" in
+        --yolo|--yolo=*|--dangerously-skip-permissions|--dangerously-skip-permissions=*|\
+        --skip-permissions-unsafe|--skip-permissions-unsafe=*|--allow-all-tools|\
+        --allow-all-tools=*|--auto|--auto=*|--force|--force=*|\
+        --permission-mode=bypassPermissions|--approval-mode=yolo|\
+        --sandbox=danger-full-access)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+aagent_audit_generated_adapter_arguments() {
+    local index display argument
+    for ((index = 0; index < ${#AAGENT_ADAPTER_ARGUMENTS[@]}; index++)); do
+        display="${AAGENT_ADAPTER_DISPLAY_ARGUMENTS[$index]}"
+        case "$display" in
+            '<prompt>'|'<model>'|'<native>') continue ;;
+        esac
+        argument="${AAGENT_ADAPTER_ARGUMENTS[$index]}"
+        if aagent_is_unsafe_permission_flag "$argument"; then
+            AAGENT_ADAPTER_ERROR="internal safety audit rejected generated permission flag: $argument"
+            return "$AAGENT_EXIT_SOFTWARE"
+        fi
+    done
+}
+
 aagent_append_adapter_argument() {
     AAGENT_ADAPTER_ARGUMENTS+=("$1")
     AAGENT_ADAPTER_DISPLAY_ARGUMENTS+=("$2")
@@ -2107,6 +2135,8 @@ aagent_build_adapter_launch_plan() {
             ;;
     esac
 
+    aagent_audit_generated_adapter_arguments || return $?
+
     aagent_create_launch_plan \
         "$executable" \
         "$AAGENT_CWD" \
@@ -2221,6 +2251,235 @@ aagent_run_automatic_provider() {
         return "$AAGENT_EXIT_OK"
     else
         return $?
+    fi
+}
+
+aagent_probe_version() {
+    local provider="$1"
+    local executable="$2"
+    local text=""
+    local lower_text=""
+    local version_pattern='^[-A-Za-z0-9._+() ]+$'
+    local digit_pattern='[0-9]'
+    local prefix_pattern
+
+    AAGENT_VERSION_RESULT="unknown"
+    AAGENT_VERSION_REASON="not_checked"
+    aagent_run_probe_process "$executable" "" stdout 0 --version
+    AAGENT_VERSION_REASON="$AAGENT_PROBE_PROCESS_STATUS"
+    if [[ "$AAGENT_PROBE_PROCESS_STATUS" != "success" ]]; then
+        AAGENT_PROBE_CAPTURE=""
+        return 0
+    fi
+    text="$AAGENT_PROBE_CAPTURE"
+    AAGENT_PROBE_CAPTURE=""
+    text="${text%$'\r'}"
+    if (( ${#text} == 0 || ${#text} > 128 )) || [[ "$text" == *$'\n'* || "$text" == *$'\r'* ]]; then
+        AAGENT_VERSION_REASON="unsafe_output"
+        return 0
+    fi
+    if [[ ! "$text" =~ $version_pattern || ! "$text" =~ $digit_pattern ]]; then
+        AAGENT_VERSION_REASON="unsafe_output"
+        return 0
+    fi
+    lower_text="$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')"
+    prefix_pattern="^(v?[0-9]|${provider}([ -](cli|code))?[ ]+v?[0-9])"
+    if [[ ! "$lower_text" =~ $prefix_pattern ]]; then
+        AAGENT_VERSION_REASON="unsafe_output"
+        return 0
+    fi
+    AAGENT_VERSION_RESULT="$text"
+    AAGENT_VERSION_REASON="success"
+}
+
+aagent_reset_inspection() {
+    local index
+    AAGENT_INSPECTION_AUTH_STATUSES=()
+    AAGENT_INSPECTION_FUNDING_CLASSES=()
+    AAGENT_INSPECTION_CONFIDENCE_RANKS=()
+    AAGENT_INSPECTION_PLAN_LABELS=()
+    AAGENT_INSPECTION_PROBE_REASONS=()
+    AAGENT_INSPECTION_SHADOWING_VARIABLES=()
+    AAGENT_INSPECTION_VERSIONS=()
+    AAGENT_INSPECTION_VERSION_REASONS=()
+    AAGENT_INSPECTION_SELECTED=()
+    AAGENT_INSPECTION_REASONS=()
+    AAGENT_INSPECTION_CANDIDATE_INDEXES=()
+    AAGENT_INSPECTION_SELECTED_PROVIDER="none"
+    AAGENT_INSPECTION_SELECTION_REASON="no eligible provider"
+    for ((index = 0; index < ${#AAGENT_ADAPTER_IDS[@]}; index++)); do
+        AAGENT_INSPECTION_AUTH_STATUSES+=("unknown")
+        AAGENT_INSPECTION_FUNDING_CLASSES+=("unknown")
+        AAGENT_INSPECTION_CONFIDENCE_RANKS+=("0")
+        AAGENT_INSPECTION_PLAN_LABELS+=("Unknown")
+        AAGENT_INSPECTION_PROBE_REASONS+=("not_inspected")
+        AAGENT_INSPECTION_SHADOWING_VARIABLES+=("")
+        AAGENT_INSPECTION_VERSIONS+=("unknown")
+        AAGENT_INSPECTION_VERSION_REASONS+=("not_checked")
+        AAGENT_INSPECTION_SELECTED+=("no")
+        AAGENT_INSPECTION_REASONS+=("${AAGENT_DISCOVERY_REASONS[$index]}")
+        AAGENT_INSPECTION_CANDIDATE_INDEXES+=("-1")
+    done
+}
+
+aagent_build_inspection_snapshot() {
+    local scope="${1-}"
+    local include_versions="${2:-0}"
+    local index provider candidate_index selected_index
+
+    aagent_discover_adapters
+    aagent_reset_selection
+    aagent_reset_inspection
+
+    for ((index = 0; index < ${#AAGENT_ADAPTER_IDS[@]}; index++)); do
+        provider="${AAGENT_ADAPTER_IDS[$index]}"
+        if [[ "$include_versions" == "1" &&
+            ( "${AAGENT_DISCOVERY_STATUSES[$index]}" == "installed" ||
+              "${AAGENT_DISCOVERY_STATUSES[$index]}" == "unsupported" ) &&
+            ( -z "$scope" || "$scope" == "$provider" ) ]]; then
+            aagent_probe_version "$provider" "${AAGENT_DISCOVERY_PATHS[$index]}"
+            AAGENT_INSPECTION_VERSIONS[index]="$AAGENT_VERSION_RESULT"
+            AAGENT_INSPECTION_VERSION_REASONS[index]="$AAGENT_VERSION_REASON"
+        fi
+        [[ "${AAGENT_DISCOVERY_STATUSES[$index]}" == "installed" ]] || continue
+        [[ -z "$scope" || "$scope" == "$provider" ]] || continue
+
+        aagent_probe_provider "$provider" "${AAGENT_DISCOVERY_PATHS[$index]}"
+        aagent_project_probe_for_auth_policy "$provider"
+        candidate_index="${#AAGENT_SELECTION_PROVIDER_IDS[@]}"
+        aagent_add_selection_candidate \
+            "$index" "$provider" "${AAGENT_DISCOVERY_PATHS[$index]}" \
+            "$AAGENT_PROBE_READINESS" "$AAGENT_PROBE_FUNDING_CLASS" \
+            "$AAGENT_PROBE_CONFIDENCE_RANK" "$AAGENT_PROBE_PLAN_LABEL" \
+            "$AAGENT_PROBE_REASON_CODE" "${AAGENT_ADAPTER_POPULARITY[$index]}" \
+            "${AAGENT_ADAPTER_REGISTRY_ORDER[$index]}" "$AAGENT_PROBE_SHADOWING_VARIABLES" \
+            "$AAGENT_AUTH_ENV_SET_NAME" "$AAGENT_AUTH_ENV_SET_SOURCE_NAME" \
+            "$AAGENT_AUTH_ENV_UNSET_NAME" "$AAGENT_AUTH_ADJUSTMENT_NOTICE"
+        AAGENT_INSPECTION_CANDIDATE_INDEXES[index]="$candidate_index"
+        AAGENT_INSPECTION_AUTH_STATUSES[index]="$AAGENT_PROBE_READINESS"
+        AAGENT_INSPECTION_FUNDING_CLASSES[index]="$AAGENT_PROBE_FUNDING_CLASS"
+        AAGENT_INSPECTION_CONFIDENCE_RANKS[index]="$AAGENT_PROBE_CONFIDENCE_RANK"
+        AAGENT_INSPECTION_PLAN_LABELS[index]="$AAGENT_PROBE_PLAN_LABEL"
+        AAGENT_INSPECTION_PROBE_REASONS[index]="$AAGENT_PROBE_REASON_CODE"
+        AAGENT_INSPECTION_SHADOWING_VARIABLES[index]="$AAGENT_PROBE_SHADOWING_VARIABLES"
+        AAGENT_INSPECTION_REASONS[index]="$AAGENT_PROBE_REASON_CODE"
+    done
+
+    if [[ -n "$AAGENT_EFFECTIVE_PROVIDER" ]]; then
+        selected_index="$(aagent_get_adapter_index "$AAGENT_EFFECTIVE_PROVIDER")"
+        AAGENT_INSPECTION_SELECTED[selected_index]="yes"
+        AAGENT_INSPECTION_REASONS[selected_index]="$AAGENT_PROVIDER_SOURCE_LABEL"
+        AAGENT_INSPECTION_SELECTED_PROVIDER="$AAGENT_EFFECTIVE_PROVIDER"
+        AAGENT_INSPECTION_SELECTION_REASON="$AAGENT_PROVIDER_SOURCE_LABEL"
+        return 0
+    fi
+    if [[ -n "$scope" ]]; then
+        AAGENT_INSPECTION_SELECTION_REASON="not evaluated by provider-scoped doctor"
+        return 0
+    fi
+    if ! aagent_select_candidates; then
+        return 0
+    fi
+
+    candidate_index="$AAGENT_SELECTION_WINNER_INDEX"
+    selected_index="${AAGENT_SELECTION_ADAPTER_INDEXES[$candidate_index]}"
+    AAGENT_INSPECTION_SELECTED[selected_index]="yes"
+    AAGENT_INSPECTION_REASONS[selected_index]="$AAGENT_SELECTION_REASON_DISPLAY"
+    AAGENT_INSPECTION_SELECTED_PROVIDER="${AAGENT_SELECTION_PROVIDER_IDS[$candidate_index]}"
+    AAGENT_INSPECTION_SELECTION_REASON="$AAGENT_SELECTION_REASON_DISPLAY"
+
+    for ((index = 0; index < ${#AAGENT_ADAPTER_IDS[@]}; index++)); do
+        candidate_index="${AAGENT_INSPECTION_CANDIDATE_INDEXES[$index]}"
+        (( candidate_index >= 0 )) || continue
+        [[ "${AAGENT_INSPECTION_SELECTED[$index]}" == "yes" ]] && continue
+        if [[ "${AAGENT_SELECTION_ELIGIBLE[$candidate_index]}" != "1" ]]; then
+            AAGENT_INSPECTION_REASONS[index]="${AAGENT_SELECTION_EXCLUSIONS[candidate_index]}"
+            continue
+        fi
+        aagent_compare_selection_indexes "$AAGENT_SELECTION_WINNER_INDEX" "$candidate_index"
+        AAGENT_INSPECTION_REASONS[index]="lower $AAGENT_SELECTION_COMPARISON_FIELD"
+    done
+}
+
+aagent_show_providers() {
+    local index status
+    aagent_build_inspection_snapshot "" 0
+    printf '%-10s %-11s %-21s %-9s %s\n' ID STATUS FUNDING SELECTED REASON
+    for ((index = 0; index < ${#AAGENT_ADAPTER_IDS[@]}; index++)); do
+        status="${AAGENT_DISCOVERY_STATUSES[$index]}"
+        if [[ "$status" == "installed" ]]; then
+            status="${AAGENT_INSPECTION_AUTH_STATUSES[$index]}"
+        fi
+        printf '%-10s %-11s %-21s %-9s %s\n' \
+            "${AAGENT_ADAPTER_IDS[$index]}" "$status" \
+            "${AAGENT_INSPECTION_FUNDING_CLASSES[$index]}" \
+            "${AAGENT_INSPECTION_SELECTED[$index]}" \
+            "${AAGENT_INSPECTION_REASONS[$index]}"
+    done
+}
+
+aagent_show_doctor_provider() {
+    local index="$1"
+    local path="${AAGENT_DISCOVERY_PATHS[$index]}"
+    printf '\nprovider: %s\n' "${AAGENT_ADAPTER_IDS[$index]}"
+    printf 'name: %s\n' "${AAGENT_ADAPTER_NAMES[$index]}"
+    printf 'tier: %s\n' "${AAGENT_ADAPTER_TIERS[$index]}"
+    printf 'discovery: %s\n' "${AAGENT_DISCOVERY_STATUSES[$index]}"
+    printf 'path: '
+    if [[ -n "$path" ]]; then aagent_quote_for_display "$path"; else printf '(none)'; fi
+    printf '\nversion: %s\n' "${AAGENT_INSPECTION_VERSIONS[$index]}"
+    printf 'version status: %s\n' "${AAGENT_INSPECTION_VERSION_REASONS[$index]}"
+    printf 'authentication: %s\n' "${AAGENT_INSPECTION_AUTH_STATUSES[$index]}"
+    printf 'funding: %s\n' "${AAGENT_INSPECTION_FUNDING_CLASSES[$index]}"
+    printf 'confidence: %s\n' "${AAGENT_INSPECTION_CONFIDENCE_RANKS[$index]}"
+    printf 'plan: %s\n' "${AAGENT_INSPECTION_PLAN_LABELS[$index]}"
+    printf 'probe reason: %s\n' "${AAGENT_INSPECTION_PROBE_REASONS[$index]}"
+    printf 'shadowing variables: %s\n' "${AAGENT_INSPECTION_SHADOWING_VARIABLES[$index]:-(none)}"
+    printf 'selected: %s\n' "${AAGENT_INSPECTION_SELECTED[$index]}"
+    printf 'selection reason: %s\n' "${AAGENT_INSPECTION_REASONS[$index]}"
+    printf 'command: %s\n' "${AAGENT_ADAPTER_COMMANDS[$index]}"
+    printf 'stdin: %s\n' "${AAGENT_ADAPTER_STDIN[$index]}"
+    printf 'model: %s\n' "${AAGENT_ADAPTER_MODELS[$index]}"
+    printf 'structured output: %s\n' "${AAGENT_ADAPTER_STRUCTURED[$index]}"
+    printf 'sessions: %s\n' "${AAGENT_ADAPTER_SESSIONS[$index]}"
+    printf 'safety: %s\n' "${AAGENT_ADAPTER_SAFETY[$index]}"
+}
+
+aagent_show_doctor() {
+    local scope="${AAGENT_DOCTOR_PROVIDER-}"
+    local scope_index="" index config_status provider_setting priority_setting
+    if [[ -n "$scope" ]]; then
+        if ! scope_index="$(aagent_get_adapter_index "$scope")"; then
+            aagent_print_usage_error "unknown provider: $scope"
+            return "$AAGENT_EXIT_USAGE"
+        fi
+    fi
+
+    aagent_build_inspection_snapshot "$scope" 1
+    if [[ -n "$AAGENT_CONFIG_PATH" && -f "$AAGENT_CONFIG_PATH" ]]; then
+        config_status="loaded"
+    else
+        config_status="not found"
+    fi
+    provider_setting="${AAGENT_EFFECTIVE_PROVIDER:-automatic}"
+    priority_setting="${AAGENT_EFFECTIVE_PRIORITY:-(none)}"
+    printf 'aagent doctor\n'
+    printf 'wrapper: aagent %s\n' "$AAGENT_VERSION"
+    printf 'runner: bash %s\n' "$BASH_VERSION"
+    printf 'platform: %s\n' "${OSTYPE:-unknown}"
+    printf 'configuration: %s\n' "$config_status"
+    printf 'provider setting: %s (%s)\n' "$provider_setting" "$AAGENT_PROVIDER_SOURCE"
+    printf 'auth policy: %s (%s)\n' "$AAGENT_EFFECTIVE_AUTH_POLICY" "$AAGENT_AUTH_POLICY_SOURCE"
+    printf 'priority: %s (%s; tie-break only)\n' "$priority_setting" "$AAGENT_PRIORITY_SOURCE"
+    printf 'allow local: %s (%s)\n' "$AAGENT_EFFECTIVE_ALLOW_LOCAL" "$AAGENT_ALLOW_LOCAL_SOURCE"
+    printf 'selected provider: %s\n' "$AAGENT_INSPECTION_SELECTED_PROVIDER"
+    printf 'selection reason: %s\n' "$AAGENT_INSPECTION_SELECTION_REASON"
+    if [[ -n "$scope_index" ]]; then
+        aagent_show_doctor_provider "$scope_index"
+    else
+        for ((index = 0; index < ${#AAGENT_ADAPTER_IDS[@]}; index++)); do
+            aagent_show_doctor_provider "$index"
+        done
     fi
 }
 
@@ -2511,7 +2770,11 @@ aagent_read_stdin() {
 }
 
 aagent_print_usage_error() {
-    printf 'aagent: %s\n' "$1" >&2
+    local message="$1"
+    message="${message//$'\r'/\\r}"
+    message="${message//$'\n'/\\n}"
+    message="${message//$'\t'/\\t}"
+    printf 'aagent: %s\n' "$message" >&2
     printf "Try 'aagent --help' for more information.\n" >&2
 }
 
@@ -2558,9 +2821,13 @@ aagent_main() {
     fi
 
     case "$AAGENT_COMMAND" in
-        providers|doctor)
-            printf 'aagent: %s is not available in this build yet\n' "$AAGENT_COMMAND" >&2
-            return "$AAGENT_EXIT_UNAVAILABLE"
+        providers)
+            aagent_show_providers
+            return "$AAGENT_EXIT_OK"
+            ;;
+        doctor)
+            aagent_show_doctor
+            return $?
             ;;
     esac
 

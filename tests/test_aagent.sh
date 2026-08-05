@@ -14,6 +14,8 @@ config_test="$project_root/tests/test_config.sh"
 probe_test="$project_root/tests/test_probes.sh"
 selection_test="$project_root/tests/test_selection.sh"
 auth_policy_test="$project_root/tests/test_auth_policy.sh"
+introspection_test="$project_root/tests/test_introspection.sh"
+security_test="$project_root/tests/test_security.sh"
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -57,6 +59,8 @@ bash -n \
     "$probe_test" \
     "$selection_test" \
     "$auth_policy_test" \
+    "$introspection_test" \
+    "$security_test" \
     "${BASH_SOURCE[0]}"
 
 test_dir="$(mktemp -d)"
@@ -225,5 +229,7 @@ bash "$config_test"
 bash "$probe_test"
 bash "$selection_test"
 bash "$auth_policy_test"
+bash "$introspection_test"
+bash "$security_test"
 
 printf 'All Bash tests passed.\n'

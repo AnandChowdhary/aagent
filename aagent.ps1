@@ -1459,7 +1459,9 @@ function Set-AagentLaunchDisplayArguments($Plan, [string[]] $Arguments) {
 }
 
 function ConvertTo-AagentDisplayArgument([AllowEmptyString()][string] $Value) {
-    return "'$($Value.Replace("'", "''"))'"
+    $escaped = $Value.Replace('`', '``').Replace("'", "''")
+    $escaped = $escaped.Replace("`r", "``r").Replace("`n", "``n").Replace("`t", "``t")
+    return "'$escaped'"
 }
 
 function Show-AagentEnvironmentNames([string] $Label, [string[]] $Names) {
@@ -1604,6 +1606,23 @@ function New-AagentAdapterBuildResult([int] $Status, [string] $Error, $Plan) {
     }
 }
 
+function Test-AagentUnsafePermissionFlag([string] $Argument) {
+    return $Argument -in @(
+        "--yolo", "--dangerously-skip-permissions", "--skip-permissions-unsafe",
+        "--allow-all-tools", "--auto", "--force",
+        "--permission-mode=bypassPermissions", "--approval-mode=yolo",
+        "--sandbox=danger-full-access"
+    ) -or $Argument -match '^--(yolo|dangerously-skip-permissions|skip-permissions-unsafe|allow-all-tools|auto|force)='
+}
+
+function Test-AagentGeneratedAdapterArguments([string[]] $Arguments, [string[]] $DisplayArguments) {
+    for ($index = 0; $index -lt $Arguments.Count; $index++) {
+        if ($DisplayArguments[$index] -in @("<prompt>", "<model>", "<native>")) { continue }
+        if (Test-AagentUnsafePermissionFlag $Arguments[$index]) { return $false }
+    }
+    return $true
+}
+
 function New-AagentAdapterLaunchPlan($Result, $Adapter, [string] $Executable) {
     $arguments = [Collections.Generic.List[string]]::new()
     $displayArguments = [Collections.Generic.List[string]]::new()
@@ -1743,6 +1762,13 @@ function New-AagentAdapterLaunchPlan($Result, $Adapter, [string] $Executable) {
         }
     }
 
+    if (-not (Test-AagentGeneratedAdapterArguments ([string[]] $arguments) ([string[]] $displayArguments))) {
+        return New-AagentAdapterBuildResult `
+            $AagentExitSoftware `
+            "internal safety audit rejected a generated permission flag" `
+            $null
+    }
+
     try {
         $plan = New-AagentLaunchPlan `
             -Executable $Executable `
@@ -1842,6 +1868,211 @@ function Invoke-AagentAutomaticProvider($Result) {
         return $AagentExitSoftware
     }
     return Invoke-AagentLaunchPlan -Plan $build.Plan -DryRun:$Result.DryRun -Quiet:$Result.Quiet
+}
+
+function Get-AagentVersionProbe([string] $Provider, [string] $Executable) {
+    $probe = Invoke-AagentProbeProcess -Executable $Executable -Arguments @("--version")
+    if ($probe.Status -ne "success") {
+        return [pscustomobject] @{ Version = "unknown"; Status = $probe.Status }
+    }
+    $text = $probe.Capture
+    if (
+        [string]::IsNullOrEmpty($text) -or $text.Length -gt 128 -or
+        $text.Contains("`r") -or $text.Contains("`n") -or
+        $text -cnotmatch '^[-A-Za-z0-9._+() ]+$' -or $text -notmatch '[0-9]' -or
+        $text -notmatch "^(v?[0-9]|$([regex]::Escape($Provider))([ -](cli|code))?[ ]+v?[0-9])"
+    ) {
+        return [pscustomobject] @{ Version = "unknown"; Status = "unsafe_output" }
+    }
+    return [pscustomobject] @{ Version = $text; Status = "success" }
+}
+
+function Get-AagentInspectionSnapshot {
+    param(
+        $Result,
+        [string] $Scope = "",
+        [bool] $IncludeVersions = $false
+    )
+
+    $records = [Collections.Generic.List[object]]::new()
+    $candidates = [Collections.Generic.List[object]]::new()
+    $candidateRecords = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    foreach ($item in @(Get-AagentDiscovery)) {
+        $record = [pscustomobject] @{
+            Adapter = $item.Adapter
+            Id = $item.Id
+            DiscoveryStatus = $item.Status
+            DiscoveryReason = $item.Reason
+            Path = $item.Path
+            Version = "unknown"
+            VersionStatus = "not_checked"
+            AuthStatus = "unknown"
+            FundingClass = "unknown"
+            ConfidenceRank = 0
+            PlanLabel = "Unknown"
+            ProbeReason = "not_inspected"
+            ShadowingVariables = [string[]] @()
+            Selected = "no"
+            Reason = $item.Reason
+            Candidate = $null
+        }
+        if (
+            $IncludeVersions -and $item.Status -in @("installed", "unsupported") -and
+            ([string]::IsNullOrEmpty($Scope) -or $Scope -ceq $item.Id)
+        ) {
+            $version = Get-AagentVersionProbe $item.Id $item.Path
+            $record.Version = $version.Version
+            $record.VersionStatus = $version.Status
+        }
+        if (
+            $item.Status -eq "installed" -and
+            ([string]::IsNullOrEmpty($Scope) -or $Scope -ceq $item.Id)
+        ) {
+            $probe = Invoke-AagentProviderProbe $item.Id $item.Path
+            $projected = Resolve-AagentProbeAuthPolicy $probe $Result.AuthPolicy
+            $candidate = New-AagentSelectionCandidate `
+                -Adapter $item.Adapter `
+                -Path $item.Path `
+                -Probe $projected.Probe `
+                -Priority $Result.Priority `
+                -AllowLocal:($Result.AllowLocal -eq "true") `
+                -AuthEnvironmentPlan $projected.EnvironmentPlan
+            $record.AuthStatus = $projected.Probe.Readiness
+            $record.FundingClass = $projected.Probe.FundingClass
+            $record.ConfidenceRank = $projected.Probe.ConfidenceRank
+            $record.PlanLabel = $projected.Probe.PlanLabel
+            $record.ProbeReason = $projected.Probe.ReasonCode
+            $record.ShadowingVariables = [string[]] $projected.Probe.ShadowingVariables
+            $record.Reason = $projected.Probe.ReasonCode
+            $record.Candidate = $candidate
+            $candidates.Add($candidate)
+            $candidateRecords[$item.Id] = $record
+        }
+        $records.Add($record)
+    }
+
+    $selectedProvider = "none"
+    $selectionReason = "no eligible provider"
+    if (-not [string]::IsNullOrEmpty($Result.Provider)) {
+        $record = $records | Where-Object Id -CEQ $Result.Provider | Select-Object -First 1
+        $record.Selected = "yes"
+        $record.Reason = $Result.ProviderSourceLabel
+        $selectedProvider = $Result.Provider
+        $selectionReason = $Result.ProviderSourceLabel
+    } elseif (-not [string]::IsNullOrEmpty($Scope)) {
+        $selectionReason = "not evaluated by provider-scoped doctor"
+    } else {
+        $selection = Select-AagentCandidates ([object[]] $candidates.ToArray())
+        if ($null -ne $selection.Winner) {
+            $winnerRecord = $candidateRecords[$selection.Winner.Provider]
+            $winnerRecord.Selected = "yes"
+            $winnerRecord.Reason = $selection.ReasonDisplay
+            $selectedProvider = $selection.Winner.Provider
+            $selectionReason = $selection.ReasonDisplay
+            foreach ($candidate in $candidates) {
+                if ([object]::ReferenceEquals($candidate, $selection.Winner)) { continue }
+                $record = $candidateRecords[$candidate.Provider]
+                if (-not $candidate.Eligible) {
+                    $record.Reason = $candidate.Exclusion
+                } else {
+                    $comparison = Compare-AagentSelectionCandidates $selection.Winner $candidate
+                    $record.Reason = "lower $($comparison.Field)"
+                }
+            }
+        }
+    }
+
+    return [pscustomobject] @{
+        Records = [object[]] $records.ToArray()
+        SelectedProvider = $selectedProvider
+        SelectionReason = $selectionReason
+    }
+}
+
+function Show-AagentProviders($Result) {
+    $snapshot = Get-AagentInspectionSnapshot -Result $Result
+    [Console]::Out.WriteLine(("{0,-10} {1,-11} {2,-21} {3,-9} {4}" -f `
+        "ID", "STATUS", "FUNDING", "SELECTED", "REASON"))
+    foreach ($record in $snapshot.Records) {
+        $status = if ($record.DiscoveryStatus -eq "installed") {
+            $record.AuthStatus
+        } else {
+            $record.DiscoveryStatus
+        }
+        [Console]::Out.WriteLine(("{0,-10} {1,-11} {2,-21} {3,-9} {4}" -f `
+            $record.Id, $status, $record.FundingClass, $record.Selected, $record.Reason))
+    }
+}
+
+function Show-AagentDoctorProvider($Record) {
+    $path = if ([string]::IsNullOrEmpty($Record.Path)) {
+        "(none)"
+    } else {
+        ConvertTo-AagentDisplayArgument $Record.Path
+    }
+    $shadowing = if ($Record.ShadowingVariables.Count -eq 0) {
+        "(none)"
+    } else {
+        $Record.ShadowingVariables -join ","
+    }
+    [Console]::Out.WriteLine("")
+    [Console]::Out.WriteLine("provider: $($Record.Id)")
+    [Console]::Out.WriteLine("name: $($Record.Adapter.Name)")
+    [Console]::Out.WriteLine("tier: $($Record.Adapter.Tier)")
+    [Console]::Out.WriteLine("discovery: $($Record.DiscoveryStatus)")
+    [Console]::Out.WriteLine("path: $path")
+    [Console]::Out.WriteLine("version: $($Record.Version)")
+    [Console]::Out.WriteLine("version status: $($Record.VersionStatus)")
+    [Console]::Out.WriteLine("authentication: $($Record.AuthStatus)")
+    [Console]::Out.WriteLine("funding: $($Record.FundingClass)")
+    [Console]::Out.WriteLine("confidence: $($Record.ConfidenceRank)")
+    [Console]::Out.WriteLine("plan: $($Record.PlanLabel)")
+    [Console]::Out.WriteLine("probe reason: $($Record.ProbeReason)")
+    [Console]::Out.WriteLine("shadowing variables: $shadowing")
+    [Console]::Out.WriteLine("selected: $($Record.Selected)")
+    [Console]::Out.WriteLine("selection reason: $($Record.Reason)")
+    [Console]::Out.WriteLine("command: $($Record.Adapter.Command)")
+    [Console]::Out.WriteLine("stdin: $($Record.Adapter.Stdin)")
+    [Console]::Out.WriteLine("model: $($Record.Adapter.Model)")
+    [Console]::Out.WriteLine("structured output: $($Record.Adapter.Structured)")
+    [Console]::Out.WriteLine("sessions: $($Record.Adapter.Sessions)")
+    [Console]::Out.WriteLine("safety: $($Record.Adapter.Safety)")
+}
+
+function Show-AagentDoctor($Result) {
+    $scope = $Result.DoctorProvider
+    if (-not [string]::IsNullOrEmpty($scope) -and $null -eq (Get-AagentAdapter $scope)) {
+        Write-AagentUsageError "unknown provider: $scope"
+        return $AagentExitUsage
+    }
+    $snapshot = Get-AagentInspectionSnapshot -Result $Result -Scope $scope -IncludeVersions $true
+    $configurationPath = Get-AagentConfigurationPath
+    $configurationStatus = if (
+        -not [string]::IsNullOrEmpty($configurationPath) -and
+        (Test-Path -LiteralPath $configurationPath -PathType Leaf)
+    ) { "loaded" } else { "not found" }
+    $platform = if ($IsWindows) { "Windows" } elseif ($IsMacOS) { "macOS" } else { "Linux" }
+    $providerSetting = if ([string]::IsNullOrEmpty($Result.Provider)) { "automatic" } else { $Result.Provider }
+    $prioritySetting = if ([string]::IsNullOrEmpty($Result.Priority)) { "(none)" } else { $Result.Priority }
+    [Console]::Out.WriteLine("aagent doctor")
+    [Console]::Out.WriteLine("wrapper: aagent $AagentVersion")
+    [Console]::Out.WriteLine("runner: PowerShell $($PSVersionTable.PSVersion)")
+    [Console]::Out.WriteLine("platform: $platform $([Runtime.InteropServices.RuntimeInformation]::OSArchitecture)")
+    [Console]::Out.WriteLine("configuration: $configurationStatus")
+    [Console]::Out.WriteLine("provider setting: $providerSetting ($($Result.ProviderSource))")
+    [Console]::Out.WriteLine("auth policy: $($Result.AuthPolicy) ($($Result.AuthPolicySource))")
+    [Console]::Out.WriteLine("priority: $prioritySetting ($($Result.PrioritySource); tie-break only)")
+    [Console]::Out.WriteLine("allow local: $($Result.AllowLocal) ($($Result.AllowLocalSource))")
+    [Console]::Out.WriteLine("selected provider: $($snapshot.SelectedProvider)")
+    [Console]::Out.WriteLine("selection reason: $($snapshot.SelectionReason)")
+    if (-not [string]::IsNullOrEmpty($scope)) {
+        Show-AagentDoctorProvider ($snapshot.Records | Where-Object Id -CEQ $scope | Select-Object -First 1)
+    } else {
+        foreach ($record in $snapshot.Records) {
+            Show-AagentDoctorProvider $record
+        }
+    }
+    return $AagentExitOk
 }
 
 function Show-AagentHelp {
@@ -2116,7 +2347,8 @@ function Resolve-AagentInput {
 }
 
 function Write-AagentUsageError([string] $Message) {
-    [Console]::Error.WriteLine("aagent: $Message")
+    $safeMessage = $Message.Replace("`r", "``r").Replace("`n", "``n").Replace("`t", "``t")
+    [Console]::Error.WriteLine("aagent: $safeMessage")
     [Console]::Error.WriteLine("Try 'aagent --help' for more information.")
 }
 
@@ -2148,9 +2380,12 @@ function Invoke-Aagent {
         return $result.Status
     }
 
-    if ($result.Command -in @("providers", "doctor")) {
-        [Console]::Error.WriteLine("aagent: $($result.Command) is not available in this build yet")
-        return $AagentExitUnavailable
+    if ($result.Command -eq "providers") {
+        Show-AagentProviders $result
+        return $AagentExitOk
+    }
+    if ($result.Command -eq "doctor") {
+        return Show-AagentDoctor $result
     }
 
     $stdinAvailable = [Console]::IsInputRedirected
