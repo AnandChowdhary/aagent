@@ -69,6 +69,12 @@ flag, never sources a configuration file, never reads a credential token file,
 never sends a model request for probing, never emits token or PII fields from a
 status response, and never changes the parent environment.
 
+The security suite also source-audits command-evaluation primitives, traps OS
+credential-helper names, holds or blocks known credential files, fuzzes control
+characters and shell metacharacters at user-controlled boundaries, bounds
+version diagnostics, and table-tests wrapper-owned and provider-native `64`,
+`69`, `70`, and `78` statuses.
+
 ## Platform matrix
 
 GitHub Actions must run:

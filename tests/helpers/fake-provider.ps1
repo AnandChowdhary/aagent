@@ -29,6 +29,7 @@ if ([string]::IsNullOrEmpty($kind)) {
     $second = if ($ProviderArguments.Count -gt 1) { $ProviderArguments[1] } else { "" }
 
     if (
+        $first -eq "--version" -or
         ($provider -eq "claude" -and $first -eq "auth" -and $second -eq "status") -or
         ($provider -eq "codex" -and $first -eq "login" -and $second -eq "status") -or
         ($provider -eq "codex" -and $first -eq "app-server") -or
@@ -97,7 +98,9 @@ if ($kind -eq "probe") {
     $stdout = $env:AAGENT_FAKE_PROBE_STDOUT
     $stderr = $env:AAGENT_FAKE_PROBE_STDERR
     $statusText = $env:AAGENT_FAKE_PROBE_STATUS
-    $probeProfile = if ($provider -eq "claude" -and $ProviderArguments[0] -eq "auth") {
+    $probeProfile = if ($ProviderArguments.Count -gt 0 -and $ProviderArguments[0] -eq "--version") {
+        "VERSION"
+    } elseif ($provider -eq "claude" -and $ProviderArguments[0] -eq "auth") {
         "CLAUDE"
     } elseif ($provider -eq "codex" -and $ProviderArguments[0] -eq "app-server") {
         "CODEX_APP_SERVER"

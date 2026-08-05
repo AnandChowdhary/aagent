@@ -21,6 +21,9 @@ provider="${provider%.ps1}"
 kind="${AAGENT_FAKE_INVOCATION_KIND:-}"
 if [[ -z "$kind" ]]; then
     case "$provider:${1:-}:${2:-}" in
+        *:--version:*)
+            kind="probe"
+            ;;
         claude:auth:status|codex:login:status|opencode:auth:list)
             kind="probe"
             ;;
@@ -129,6 +132,7 @@ if [[ "$kind" == "probe" ]]; then
     status="${AAGENT_FAKE_PROBE_STATUS:-0}"
     probe_profile=""
     case "$provider:${1:-}:${2:-}" in
+        *:--version:*) probe_profile="VERSION" ;;
         claude:auth:status) probe_profile="CLAUDE" ;;
         codex:app-server:*) probe_profile="CODEX_APP_SERVER" ;;
         codex:login:status) probe_profile="CODEX_LOGIN" ;;

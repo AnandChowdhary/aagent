@@ -641,67 +641,70 @@ Deliverable: narrowly scoped cost-saving overrides without parent mutation
 Dependencies: Phases 3 through 9
 Deliverable: safe visibility into discovery, classification, and launch plans
 
-- [ ] **P10-01 Implement `aagent providers`.**
+- [x] **P10-01 Implement `aagent providers`.**
   List every known adapter in stable order with status, funding, selected flag,
   and nonsecret reason; return `0` even when all providers are missing.
 
-- [ ] **P10-02 Implement `aagent doctor`.**
+- [x] **P10-02 Implement `aagent doctor`.**
   Report wrapper/platform data, paths, versions where safely available,
   configuration findings, selection explanation, auth confidence, capabilities,
   safety notes, and shadowing variable names without launching a model.
 
-- [ ] **P10-03 Implement provider-scoped doctor.**
+- [x] **P10-03 Implement provider-scoped doctor.**
   A known provider argument limits diagnostics; a known missing provider is a
   diagnostic result, while an unknown ID is a `64` usage error.
 
-- [ ] **P10-04 Complete dry-run parity.**
+- [x] **P10-04 Complete dry-run parity.**
   Resolve the same config, probes, selection, child environment, cwd, stdin
   mode, and adapter argv as a real run while proving the provider run command
   never starts.
 
-- [ ] **P10-05 Bound all diagnostic subprocesses.**
+- [x] **P10-05 Bound all diagnostic subprocesses.**
   Version and passive status checks need timeouts, output limits, noninteractive
   input, cleanup, and `unknown` fallback.
 
-- [ ] **P10-06 Redact paths and account data appropriately.**
+- [x] **P10-06 Redact paths and account data appropriately.**
   Default output may show resolved executable paths but not home-relative
   credential paths, email, organization, raw endpoint credentials, tokens, or
   probe payloads.
 
-- [ ] **P10-07 Audit permission escalation.**
+- [x] **P10-07 Audit permission escalation.**
   Search every generated argv for a maintained denylist of known unsafe flags;
   tests prove such flags appear only when the user supplied them after `--`.
 
-- [ ] **P10-08 Audit evaluation primitives.**
+- [x] **P10-08 Audit evaluation primitives.**
   Add a source-level test or lint assertion preventing `eval`, configuration
   sourcing, `sh -c` with user data, PowerShell `Invoke-Expression`, and
   equivalent command-string evaluation.
 
-- [ ] **P10-09 Audit credential access.**
+- [x] **P10-09 Audit credential access.**
   Tests use unreadable/trap credential locations and fake helper commands to
   prove the wrapper relies exclusively on provider status processes and
   allowlisted nonsecret config fields.
 
-- [ ] **P10-10 Audit no-model-probe behavior.**
+- [x] **P10-10 Audit no-model-probe behavior.**
   Fake providers distinguish status and run subcommands; providers, doctor,
   automatic selection, help, version, and dry-run must record zero prompt/run
   calls.
 
-- [ ] **P10-11 Fuzz user-controlled boundaries.**
+- [x] **P10-11 Fuzz user-controlled boundaries.**
   Feed prompt, model, cwd, provider ID, override path, config, native argv, and
   probe fields with shell metacharacters, Unicode, invalid encodings where
   representable, long values, and line breaks.
 
-- [ ] **P10-12 Verify error taxonomy.**
+- [x] **P10-12 Verify error taxonomy.**
   Table-test every wrapper-owned `64`, `69`, `70`, and `78` path, confirming
   stable stderr prefixes and no collision with a launched provider's identical
   numeric status.
 
 ### Phase 10 exit gate
 
-- [ ] Providers, doctor, and dry-run meet the introspection contract; security
+- [x] Providers, doctor, and dry-run meet the introspection contract; security
   tests prove no evaluation, permission injection, credential access, paid
   probe, PII leak, parent mutation, or automatic failover.
+
+  Evidence: [PR #10](https://github.com/AnandChowdhary/aagent/pull/10) and
+  [cross-platform CI run 30963936536](https://github.com/AnandChowdhary/aagent/actions/runs/30963936536).
 
 ## Phase 11 - Installation, platform parity, and MVP release
 
