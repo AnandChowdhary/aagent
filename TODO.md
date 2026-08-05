@@ -703,6 +703,9 @@ Deliverable: safe visibility into discovery, classification, and launch plans
   tests prove no evaluation, permission injection, credential access, paid
   probe, PII leak, parent mutation, or automatic failover.
 
+  Evidence: [PR #10](https://github.com/AnandChowdhary/aagent/pull/10) and
+  [cross-platform CI run 30963936536](https://github.com/AnandChowdhary/aagent/actions/runs/30963936536).
+
 ## Phase 11 - Installation, platform parity, and MVP release
 
 Dependencies: Phases 1 through 10
