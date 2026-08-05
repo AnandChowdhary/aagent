@@ -1,0 +1,62 @@
+name: Tier 1 compatibility
+
+on:
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-help:
+    name: ${{ matrix.provider }} help/version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [claude, codex, opencode, amp, gemini]
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: actions/setup-node@v6
+        if: matrix.provider != 'amp'
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install current ${{ matrix.provider }} CLI without credentials
+        shell: bash
+        env:
+          PROVIDER: ${{ matrix.provider }}
+        run: |
+          set -euo pipefail
+          case "$PROVIDER" in
+            claude) npm install --global @anthropic-ai/claude-code@latest ;;
+            codex) npm install --global @openai/codex@latest ;;
+            opencode) npm install --global opencode-ai@latest ;;
+            gemini) npm install --global @google/gemini-cli@latest ;;
+            amp)
+              curl --fail --silent --show-error --location https://ampcode.com/install.sh | bash
+              printf '%s\n' "$HOME/.local/bin" >>"$GITHUB_PATH"
+              export PATH="$HOME/.local/bin:$PATH"
+              ;;
+          esac
+
+      - name: Check documented non-secret command surfaces
+        shell: bash
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          AAGENT_COMPAT_OUTPUT_DIR: ${{ runner.temp }}/aagent-compatibility
+        run: bash ./scripts/check-provider-compatibility.sh "$PROVIDER"
+
+      - name: Retain help/version drift evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compatibility-${{ matrix.provider }}
+          path: ${{ runner.temp }}/aagent-compatibility/${{ matrix.provider }}.txt
+          if-no-files-found: ignore
+          retention-days: 14

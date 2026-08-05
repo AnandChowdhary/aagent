@@ -2,7 +2,7 @@
 
 Status: Authoritative source of truth for implementation
 Specification snapshot: 2026-08-04
-Current milestone: Phase 8 complete; Phase 9 next
+Current milestone: Phase 11 release readiness
 
 This ledger turns [SPEC.md](SPEC.md) into ordered, independently verifiable
 work. Phases 0 through 11 define the MVP. Phases 12 onward are backlog and must
@@ -740,9 +740,12 @@ Deliverable: installable, documented MVP with passing cross-platform CI
   Evidence for P11-01 through P11-06: [PR #11](https://github.com/AnandChowdhary/aagent/pull/11)
   and [cross-platform CI run 30965728505](https://github.com/AnandChowdhary/aagent/actions/runs/30965728505).
 
-- [ ] **P11-07 Add scheduled compatibility checks.**
+- [x] **P11-07 Add scheduled compatibility checks.**
   In a non-secret workflow, install or inspect current Tier 1 CLI help/version
   output and flag command drift without authenticating or running a prompt.
+
+  Evidence: `scripts/check-provider-compatibility.sh`,
+  `tests/test_compatibility.sh`, and `.github/workflows/compatibility.yml`.
 
 - [ ] **P11-08 Rewrite README for the functional MVP.**
   Document installation, examples, supported providers, selection/cost policy,
