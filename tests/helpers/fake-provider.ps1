@@ -29,11 +29,12 @@ if ([string]::IsNullOrEmpty($kind)) {
     $second = if ($ProviderArguments.Count -gt 1) { $ProviderArguments[1] } else { "" }
 
     if (
-        $first -eq "--version" -or
+        $first -in @("--version", "--help") -or
         ($provider -eq "claude" -and $first -eq "auth" -and $second -eq "status") -or
         ($provider -eq "codex" -and $first -eq "login" -and $second -eq "status") -or
         ($provider -eq "codex" -and $first -eq "app-server") -or
-        ($provider -eq "opencode" -and $first -eq "auth" -and $second -eq "list")
+        ($provider -eq "opencode" -and $first -eq "auth" -and $second -eq "list") -or
+        ($provider -in @("agent", "cursor-agent", "cursor") -and $first -eq "status" -and $second -eq "--format")
     ) {
         $kind = "probe"
     } else {
@@ -100,6 +101,8 @@ if ($kind -eq "probe") {
     $statusText = $env:AAGENT_FAKE_PROBE_STATUS
     $probeProfile = if ($ProviderArguments.Count -gt 0 -and $ProviderArguments[0] -eq "--version") {
         "VERSION"
+    } elseif ($ProviderArguments.Count -gt 0 -and $ProviderArguments[0] -eq "--help") {
+        "HELP"
     } elseif ($provider -eq "claude" -and $ProviderArguments[0] -eq "auth") {
         "CLAUDE"
     } elseif ($provider -eq "codex" -and $ProviderArguments[0] -eq "app-server") {
@@ -108,6 +111,8 @@ if ($kind -eq "probe") {
         "CODEX_LOGIN"
     } elseif ($provider -eq "opencode" -and $ProviderArguments[0] -eq "auth") {
         "OPENCODE"
+    } elseif ($provider -in @("agent", "cursor-agent", "cursor") -and $ProviderArguments[0] -eq "status") {
+        "CURSOR_STATUS"
     } else {
         ""
     }

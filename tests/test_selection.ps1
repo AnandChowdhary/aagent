@@ -158,7 +158,7 @@ $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-selection-" + [guid]::N
 $selectionEnvironmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
     "AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN",
-    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN",
+    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN", "AAGENT_CURSOR_BIN",
     "AAGENT_FAKE_RECORD_DIR", "AAGENT_FAKE_INVOCATION_KIND", "AAGENT_FAKE_PROVIDER",
     "AAGENT_FAKE_ENV_PRESENCE", "AAGENT_FAKE_ENV_CAPTURE", "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR",
     "AAGENT_FAKE_PROBE_STATUS", "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES",
@@ -166,6 +166,8 @@ $selectionEnvironmentNames = @(
     "AAGENT_FAKE_CODEX_APP_SERVER_STDOUT", "AAGENT_FAKE_CODEX_APP_SERVER_STDERR",
     "AAGENT_FAKE_CODEX_APP_SERVER_STATUS", "AAGENT_FAKE_CODEX_LOGIN_STDERR",
     "AAGENT_FAKE_CODEX_LOGIN_STATUS", "AAGENT_FAKE_OPENCODE_STDOUT", "AAGENT_FAKE_OPENCODE_STATUS",
+    "AAGENT_FAKE_VERSION_STDOUT", "AAGENT_FAKE_HELP_STDOUT",
+    "AAGENT_FAKE_CURSOR_STATUS_STDOUT", "AAGENT_FAKE_CURSOR_STATUS_STATUS",
     "AAGENT_FAKE_RUN_STDOUT", "AAGENT_FAKE_RUN_STDERR", "AAGENT_FAKE_RUN_STATUS",
     "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
     "ANTHROPIC_BEDROCK_BASE_URL", "ANTHROPIC_BEDROCK_MANTLE_BASE_URL", "ANTHROPIC_AWS_BASE_URL",
@@ -173,7 +175,7 @@ $selectionEnvironmentNames = @(
     "ANTHROPIC_FOUNDRY_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "ANTHROPIC_CUSTOM_HEADERS",
     "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
-    "CODEX_API_KEY", "OPENAI_API_KEY", "AMP_API_KEY",
+    "CODEX_API_KEY", "OPENAI_API_KEY", "AMP_API_KEY", "CURSOR_API_KEY",
     "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_API_KEY",
     "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL",
     "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
@@ -197,7 +199,7 @@ try {
     )) {
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
-    foreach ($provider in @("claude", "codex", "opencode", "copilot", "amp", "gemini")) {
+    foreach ($provider in @("claude", "codex", "opencode", "copilot", "amp", "gemini", "agent")) {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }
     $env:HOME = $homeDir
@@ -222,6 +224,9 @@ try {
         $env:AAGENT_COPILOT_BIN = Join-Path $missingDir "copilot"
         $env:AAGENT_GEMINI_BIN = Join-Path $missingDir "gemini"
         $env:AAGENT_AMP_BIN = Join-Path $missingDir "amp"
+        $env:AAGENT_CURSOR_BIN = Join-Path $missingDir "agent"
+        $env:AAGENT_FAKE_VERSION_STDOUT = "2026.07.23-e383d2b"
+        $env:AAGENT_FAKE_HELP_STDOUT = "Usage: agent Start the Cursor Agent --print status"
         $env:AAGENT_FAKE_RUN_STDOUT = "provider-output"
         $env:AAGENT_FAKE_RUN_STATUS = "0"
     }
@@ -277,6 +282,56 @@ try {
     Assert-SelectionEqual $processResult.Status 0 "Codex versus Copilot scenario failed"
     if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "codex.run.*.record")) {
         throw "ChatGPT Pro did not beat GitHub-account Copilot"
+    }
+
+    Clear-SelectionCase
+    $env:AAGENT_CURSOR_BIN = Join-Path $fakeBin "agent.ps1"
+    $env:AAGENT_CODEX_BIN = Join-Path $fakeBin "codex.ps1"
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"userInfo":{"email":"person@example.com"}}'
+    $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}}'
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Cursor included-account scenario failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "agent.run.*.record")) {
+        throw "Cursor account did not beat API-only Codex"
+    }
+    Assert-SelectionContains $processResult.Stderr `
+        "using cursor (included_account, Cursor account; higher funding class (included_account))" `
+        "Cursor selection notice differs"
+
+    Clear-SelectionCase
+    $env:AAGENT_CURSOR_BIN = Join-Path $fakeBin "agent.ps1"
+    $env:AAGENT_CODEX_BIN = Join-Path $fakeBin "codex.ps1"
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true}'
+    $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro"},"requiresOpenaiAuth":true}}'
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Codex versus Cursor scenario failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "codex.run.*.record")) {
+        throw "ChatGPT Pro did not beat Cursor account evidence"
+    }
+
+    Clear-SelectionCase
+    $env:AAGENT_CURSOR_BIN = Join-Path $fakeBin "agent.ps1"
+    $env:AAGENT_CLAUDE_BIN = Join-Path $fakeBin "claude.ps1"
+    $env:CURSOR_API_KEY = "seeded-secret-token"
+    $env:AAGENT_FAKE_CLAUDE_STDOUT = '{"loggedIn":true,"authMethod":"api_key","apiProvider":"console"}'
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Cursor API-key scenario failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "agent.run.*.record")) {
+        throw "Cursor account credential did not beat API-only Claude"
+    }
+
+    Clear-SelectionCase
+    $env:AAGENT_CURSOR_BIN = Join-Path $fakeBin "agent.ps1"
+    $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"http://localhost:11434/v1"}'
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status $AagentExitUnavailable "Cursor local route bypassed allow-local"
+    if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) {
+        throw "Blocked Cursor local route received the prompt"
+    }
+    $processResult = Invoke-SelectionProcess @("--allow-local", "true", "say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Allowed Cursor local route failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "agent.run.*.record")) {
+        throw "Allowed Cursor local route did not run"
     }
 
     Clear-SelectionCase

@@ -57,7 +57,9 @@ failure.
 - explicit missing provider;
 - executable overrides;
 - a selected provider that fails authentication, proving no failover occurs;
-- discovery of Cursor's separate `agent` executable; and
+- discovery of Cursor's separate `agent` executable, legacy alias fallback,
+  signature validation, recursion rejection, bounded status/PII parsing,
+  funding ceilings, and local-endpoint gating; and
 - `--quiet` and `--dry-run` behavior.
 
 Child authentication policy fixtures additionally verify exact Claude and
@@ -104,6 +106,9 @@ help/version text, and asserts the one-shot, model, structured-output, and
 passive-status command surfaces used by its adapter. It receives no repository
 secrets, does not authenticate, and never invokes a prompt. Deterministic fake
 CLI fixtures exercise the same checker in the normal Bash platform matrix.
+Cursor's official compatibility job runs on Linux because its installer
+supports macOS/Linux and documents Windows through WSL; PowerShell behavior is
+covered with deterministic fixtures on Windows.
 
 ## Documentation contract tests
 

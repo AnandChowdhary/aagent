@@ -119,14 +119,23 @@ assert_contains "${AAGENT_ADAPTER_SAFETY[$copilot_index]}" "no allow-all or yolo
 assert_equals "${AAGENT_ADAPTER_PROBES[$copilot_index]}" "environment precedence only" "Copilot probe metadata differs"
 assert_equals "${AAGENT_ADAPTER_MODELS[$amp_index]}" "none" "Amp model capability differs"
 assert_equals "${AAGENT_ADAPTER_EXECUTABLES[$cursor_index]}" "agent" "Cursor executable differs"
-assert_equals "${AAGENT_ADAPTER_TIERS[$cursor_index]}" "planned" "Cursor tier differs"
+assert_equals "${AAGENT_ADAPTER_TIERS[$cursor_index]}" "tier2" "Cursor tier differs"
+assert_equals "${AAGENT_ADAPTER_COMMANDS[$cursor_index]}" "agent --print --output-format text PROMPT" "Cursor command differs"
+assert_equals "${AAGENT_ADAPTER_PROBES[$cursor_index]}" "status --format json" "Cursor probe metadata differs"
 
 gemini() {
     printf 'this function must not be discovered\n'
 }
 
 export AAGENT_FAKE_RECORD_DIR="$record_dir"
-export PATH="$fake_bin"
+unset AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
+unset AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
+unset AAGENT_FAKE_VERSION_DELAY AAGENT_FAKE_VERSION_BYTES AAGENT_FAKE_HELP_DELAY AAGENT_FAKE_HELP_BYTES
+export AAGENT_FAKE_VERSION_STDOUT='2026.07.23-e383d2b'
+export AAGENT_FAKE_VERSION_STATUS=0
+export AAGENT_FAKE_HELP_STDOUT='Usage: agent Start the Cursor Agent --print status'
+export AAGENT_FAKE_HELP_STATUS=0
+export PATH="$fake_bin:/usr/bin:/bin"
 aagent_discover_adapters
 export PATH="$original_path"
 
@@ -140,9 +149,21 @@ fi
 assert_equals "$(status_for gemini)" "missing" "a shell function was accepted as Gemini"
 assert_equals "$(status_for amp)" "missing" "Amp missing status differs"
 assert_equals "$(status_for copilot)" "installed" "installed Copilot status differs"
-assert_equals "$(status_for cursor)" "unsupported" "installed planned Cursor status differs"
+assert_equals "$(status_for cursor)" "installed" "installed Cursor status differs"
 assert_equals "$(path_for cursor)" "$fake_bin/agent" "Cursor path collides with aagent"
-assert_equals "$(reason_for cursor)" "adapter planned; executable found" "Cursor planned reason differs"
+assert_equals "$(reason_for cursor)" "Cursor CLI signature found" "Cursor signature reason differs"
+
+fallback_bin="$test_dir/fallback-bin"
+mkdir -p "$fallback_bin"
+ln -s "$aagent_script" "$fallback_bin/agent"
+cp "$fake_provider" "$fallback_bin/cursor-agent"
+chmod +x "$fallback_bin/cursor-agent"
+export PATH="$fallback_bin:/usr/bin:/bin"
+aagent_discover_adapters
+export PATH="$original_path"
+assert_equals "$(status_for cursor)" "installed" "legacy Cursor alias fallback was rejected"
+assert_equals "$(path_for cursor)" "$fallback_bin/cursor-agent" "legacy Cursor alias path differs"
+assert_equals "$(reason_for cursor)" "Cursor CLI signature found via legacy cursor-agent" "legacy Cursor reason differs"
 
 export AAGENT_CODEX_BIN="$leading_executable"
 export AAGENT_CLAUDE_BIN="$aagent_script"
@@ -152,7 +173,7 @@ if (( broken_supported )); then
     export AAGENT_OPENCODE_BIN="$broken_link"
 fi
 
-export PATH="$fake_bin"
+export PATH="$fake_bin:/usr/bin:/bin"
 aagent_discover_adapters
 export PATH="$original_path"
 
@@ -166,7 +187,7 @@ assert_equals "$(status_for amp)" "missing" "directory override was accepted"
 assert_equals "$(reason_for amp)" "invalid executable override: AAGENT_AMP_BIN" "invalid override reason differs"
 if [[ ! -x "$non_executable" ]]; then
     export AAGENT_AMP_BIN="$non_executable"
-    export PATH="$fake_bin"
+    export PATH="$fake_bin:/usr/bin:/bin"
     aagent_discover_adapters
     export PATH="$original_path"
     assert_equals "$(status_for amp)" "missing" "non-executable override was accepted"
@@ -175,8 +196,19 @@ if (( broken_supported )); then
     assert_equals "$(status_for opencode)" "missing" "broken override symlink was accepted"
 fi
 
+export AAGENT_CURSOR_BIN="$aagent_script"
+export PATH="$fake_bin:/usr/bin:/bin"
+aagent_discover_adapters
+export PATH="$original_path"
+assert_equals "$(status_for cursor)" "missing" "Cursor accepted an aagent override"
+assert_equals "$(reason_for cursor)" "invalid Cursor CLI executable override: AAGENT_CURSOR_BIN" "Cursor invalid override reason differs"
+unset AAGENT_CURSOR_BIN
+
 [[ ! -e "$record_dir/run.count" ]] || fail "discovery executed a provider run"
-[[ ! -e "$record_dir/probe.count" ]] || fail "discovery executed an authentication probe"
+[[ -e "$record_dir/probe.count" ]] || fail "Cursor signature validation did not run"
+if grep -R -F -e '737461747573' -e '61757468' "$record_dir"/*.record >/dev/null; then
+    fail "discovery executed an authentication probe"
+fi
 if grep -Eq 'curl|wget' "$aagent_script"; then
     fail "runtime runner contains a network popularity lookup"
 fi

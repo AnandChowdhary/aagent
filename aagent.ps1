@@ -62,7 +62,7 @@ function Get-AagentAdapterRegistry {
         New-AagentAdapter "crush" "Crush" "crush" "AAGENT_CRUSH_BIN" "planned" "crush run PROMPT" "argument" "provider-native" "none" "unknown" "Native permission prompts remain unless user supplies yolo." "unknown" 13 13
         New-AagentAdapter "vibe" "Mistral Vibe" "vibe" "AAGENT_VIBE_BIN" "planned" "vibe --prompt PROMPT" "argument" "provider-native" "json,ndjson" "resume" "Auto-approval, tools, and budgets remain native." "profile metadata" 14 14
         New-AagentAdapter "kiro" "Kiro CLI" "kiro-cli" "AAGENT_KIRO_BIN" "planned" "kiro-cli chat --no-interactive PROMPT" "argument" "provider-native" "none" "unknown" "Trust flags control pre-approved tools and remain explicit." "unknown" 15 15
-        New-AagentAdapter "cursor" "Cursor CLI" "agent" "AAGENT_CURSOR_BIN" "planned" "agent --print PROMPT" "argument" "--model" "json,stream-json" "resume" "Changes are proposed unless the user explicitly forces them." "status --format json" 16 16
+        New-AagentAdapter "cursor" "Cursor CLI" "agent" "AAGENT_CURSOR_BIN" "tier2" "agent --print --output-format text PROMPT" "argument" "--model" "json,stream-json" "resume" "Changes are proposed unless the user explicitly forces them." "status --format json" 16 16
     )
 }
 
@@ -414,9 +414,13 @@ function Get-AagentClaudeShadowingEnvironmentNames {
 function Get-AagentProbeCommand([string] $Executable, [string[]] $Arguments) {
     $extension = [IO.Path]::GetExtension($Executable)
     if ($extension -ieq ".ps1") {
-        $pwsh = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1
+        $pwshPath = (Get-Process -Id $PID -ErrorAction Stop).Path
+        if ([string]::IsNullOrEmpty($pwshPath)) {
+            $pwsh = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1
+            $pwshPath = $pwsh.Source
+        }
         return [pscustomobject] @{
-            Executable = $pwsh.Source
+            Executable = $pwshPath
             Arguments = [string[]] (@("-NoProfile", "-File", $Executable) + $Arguments)
         }
     }
@@ -1007,6 +1011,120 @@ function Invoke-AagentCopilotProbe {
     return $result
 }
 
+function Get-AagentCursorEndpointClass([string] $Endpoint) {
+    if ([string]::IsNullOrEmpty($Endpoint) -or $Endpoint -match '[\s\p{C}]') {
+        return "invalid"
+    }
+    $uri = $null
+    if (
+        -not [Uri]::TryCreate($Endpoint, [UriKind]::Absolute, [ref] $uri) -or
+        $uri.Scheme -notin @("http", "https") -or
+        -not [string]::IsNullOrEmpty($uri.UserInfo) -or
+        [string]::IsNullOrEmpty($uri.Host)
+    ) {
+        return "invalid"
+    }
+    $endpointHost = $uri.DnsSafeHost
+    if ($endpointHost.Equals("localhost", [StringComparison]::OrdinalIgnoreCase)) {
+        return "local"
+    }
+    $address = $null
+    if ([Net.IPAddress]::TryParse($endpointHost, [ref] $address)) {
+        return $(if ([Net.IPAddress]::IsLoopback($address)) { "local" } else { "custom" })
+    }
+    if (
+        $endpointHost -notmatch '^[A-Za-z0-9.-]+$' -or
+        $endpointHost -match '^\d+\.\d+\.\d+\.\d+$' -or $endpointHost.Contains(":") -or
+        $endpointHost.Contains("..") -or $endpointHost.StartsWith(".") -or $endpointHost.EndsWith(".") -or
+        $endpointHost.StartsWith("-") -or $endpointHost.EndsWith("-")
+    ) {
+        return "invalid"
+    }
+    $endpointHost = $endpointHost.ToLowerInvariant()
+    if (
+        $endpointHost -eq "cursor.com" -or $endpointHost.EndsWith(".cursor.com") -or
+        $endpointHost -eq "cursor.sh" -or $endpointHost.EndsWith(".cursor.sh")
+    ) {
+        return "vendor"
+    }
+    return "custom"
+}
+
+function Invoke-AagentCursorProbe([string] $Executable) {
+    $result = New-AagentProbeResult "cursor"
+    if (Test-AagentEnvironmentPresent "CURSOR_API_KEY") {
+        Set-AagentProbeResult $result ready included_account 1 "Cursor account" `
+            cursor_api_key_environment environment environment_only @("CURSOR_API_KEY") | Out-Null
+        return $result
+    }
+
+    $probe = Invoke-AagentProbeProcess $Executable @("status", "--format", "json")
+    if ($probe.Status -ne "success") {
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" cursor_probe_failed `
+            auth_status $probe.Status | Out-Null
+        $probe.Capture = ""
+        return $result
+    }
+
+    $json = ConvertFrom-AagentProbeJson $probe.Capture
+    $probe.Capture = ""
+    if ($null -eq $json) {
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" cursor_schema_failure `
+            auth_status schema_failure | Out-Null
+        return $result
+    }
+
+    $authenticated = Get-AagentJsonProperty $json "isAuthenticated"
+    $access = Get-AagentJsonProperty $json "hasAccessToken"
+    $refresh = Get-AagentJsonProperty $json "hasRefreshToken"
+    $endpointProperty = $json.PSObject.Properties["endpoint"]
+    $endpointPresent = $null -ne $endpointProperty
+    $endpoint = if ($null -eq $endpointProperty) { $null } else { $endpointProperty.Value }
+    if (
+        $authenticated -isnot [bool] -or $access -isnot [bool] -or $refresh -isnot [bool] -or
+        ($endpointPresent -and $endpoint -isnot [string])
+    ) {
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" cursor_schema_failure `
+            auth_status schema_failure | Out-Null
+        return $result
+    }
+    if (-not $authenticated) {
+        Set-AagentProbeResult $result unusable unknown 3 "Not signed in" cursor_not_authenticated `
+            auth_status success | Out-Null
+        return $result
+    }
+    if (-not $access -or -not $refresh) {
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" cursor_schema_failure `
+            auth_status schema_failure | Out-Null
+        return $result
+    }
+
+    if ($endpointPresent) {
+        switch (Get-AagentCursorEndpointClass $endpoint) {
+            "invalid" {
+                Set-AagentProbeResult $result unknown unknown 0 "Unknown" cursor_endpoint_invalid `
+                    auth_status invalid_configuration | Out-Null
+            }
+            "local" {
+                Set-AagentProbeResult $result ready local 3 "Local provider" cursor_authenticated_local `
+                    auth_status success | Out-Null
+            }
+            "custom" {
+                Set-AagentProbeResult $result ready unknown 3 "Custom provider" cursor_authenticated_custom `
+                    auth_status success | Out-Null
+            }
+            "vendor" {
+                Set-AagentProbeResult $result ready included_account 3 "Cursor account" `
+                    cursor_authenticated_status auth_status success | Out-Null
+            }
+        }
+    } else {
+        Set-AagentProbeResult $result ready included_account 3 "Cursor account" `
+            cursor_authenticated_status auth_status success | Out-Null
+    }
+    return $result
+}
+
 function Invoke-AagentProviderProbe([string] $Provider, [string] $Executable = "") {
     switch ($Provider) {
         "claude" { return Invoke-AagentClaudeProbe $Executable }
@@ -1015,6 +1133,7 @@ function Invoke-AagentProviderProbe([string] $Provider, [string] $Executable = "
         "copilot" { return Invoke-AagentCopilotProbe }
         "gemini" { return Invoke-AagentGeminiProbe }
         "amp" { return Invoke-AagentAmpProbe }
+        "cursor" { return Invoke-AagentCursorProbe $Executable }
         default {
             $result = New-AagentProbeResult $Provider
             Set-AagentProbeResult $result unknown unknown 0 "Unknown" unsupported_probe none unsupported | Out-Null
@@ -1337,6 +1456,9 @@ function Test-AagentSamePath([string] $Left, [string] $Right) {
 }
 
 function Resolve-AagentDiscoveryTarget($Adapter) {
+    if ($Adapter.Id -eq "cursor") {
+        return Resolve-AagentCursorDiscoveryTarget $Adapter
+    }
     $overrideValue = [Environment]::GetEnvironmentVariable($Adapter.Override, "Process")
     $source = if ([string]::IsNullOrEmpty($overrideValue)) { "path" } else { "override" }
     $requested = if ($source -eq "override") { $overrideValue } else { $Adapter.Executable }
@@ -1398,6 +1520,69 @@ function Resolve-AagentDiscoveryTarget($Adapter) {
         Reason = "executable found"
         Found = $true
     }
+}
+
+function Test-AagentCursorSignature([string] $Executable) {
+    $version = Invoke-AagentProbeProcess $Executable @("--version")
+    if (
+        $version.Status -ne "success" -or [string]::IsNullOrEmpty($version.Capture) -or
+        $version.Capture.Length -gt 128 -or $version.Capture.Contains("`r") -or
+        $version.Capture.Contains("`n") -or $version.Capture -notmatch '[0-9]' -or
+        $version.Capture -cnotmatch '^[-A-Za-z0-9._+]+$'
+    ) {
+        $version.Capture = ""
+        return $false
+    }
+    $version.Capture = ""
+
+    $help = Invoke-AagentProbeProcess $Executable @("--help")
+    if ($help.Status -ne "success") {
+        $help.Capture = ""
+        return $false
+    }
+    $matches = $help.Capture.Contains("Start the Cursor Agent") -and `
+        $help.Capture.Contains("--print") -and $help.Capture.Contains("status")
+    $help.Capture = ""
+    return $matches
+}
+
+function Resolve-AagentCursorDiscoveryTarget($Adapter) {
+    $overrideValue = [Environment]::GetEnvironmentVariable($Adapter.Override, "Process")
+    $source = if ([string]::IsNullOrEmpty($overrideValue)) { "path" } else { "override" }
+    $requestedNames = if ($source -eq "override") { @($overrideValue) } else { @("agent", "cursor-agent") }
+
+    foreach ($requested in $requestedNames) {
+        $command = $null
+        try {
+            $command = Get-Command -Name $requested -CommandType Application, ExternalScript -ErrorAction Stop |
+                Select-Object -First 1
+        } catch {
+            continue
+        }
+        $path = $command.Source
+        if ([string]::IsNullOrEmpty($path)) { $path = $command.Path }
+        if ([string]::IsNullOrEmpty($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            continue
+        }
+        try { Resolve-AagentPhysicalPath $path | Out-Null } catch { continue }
+        if (Test-AagentSamePath $path $AagentScriptPath) { continue }
+        if (Test-AagentCursorSignature $path) {
+            $reason = if ($source -eq "path" -and $requested -eq "cursor-agent") {
+                "Cursor CLI signature found via legacy cursor-agent"
+            } else {
+                "Cursor CLI signature found"
+            }
+            return [pscustomobject] @{ Path = $path; Source = $source; Reason = $reason; Found = $true }
+        }
+        if ($source -eq "override") { break }
+    }
+
+    $reason = if ($source -eq "override") {
+        "invalid Cursor CLI executable override: $($Adapter.Override)"
+    } else {
+        "Cursor CLI executable missing or signature mismatch"
+    }
+    return [pscustomobject] @{ Path = ""; Source = $source; Reason = $reason; Found = $false }
 }
 
 function Get-AagentDiscovery {
@@ -1682,10 +1867,10 @@ function Test-AagentUnsafePermissionFlag([string] $Argument) {
     return $Argument -in @(
         "--yolo", "--dangerously-skip-permissions", "--skip-permissions-unsafe",
         "--allow-all-tools", "--allow-all-paths", "--allow-all-urls", "--allow-all",
-        "--auto", "--force",
+        "--auto", "--force", "--trust", "--approve-mcps", "--sandbox",
         "--permission-mode=bypassPermissions", "--approval-mode=yolo",
         "--sandbox=danger-full-access"
-    ) -or $Argument -match '^--(yolo|dangerously-skip-permissions|skip-permissions-unsafe|allow-all-tools|allow-all-paths|allow-all-urls|allow-all|auto|force)='
+    ) -or $Argument -match '^--(yolo|dangerously-skip-permissions|skip-permissions-unsafe|allow-all-tools|allow-all-paths|allow-all-urls|allow-all|auto|force|trust|approve-mcps|sandbox)='
 }
 
 function Test-AagentGeneratedAdapterArguments([string[]] $Arguments, [string[]] $DisplayArguments) {
@@ -1815,6 +2000,34 @@ function New-AagentAdapterLaunchPlan($Result, $Adapter, [string] $Executable) {
                 $arguments.Add($argument)
                 $displayArguments.Add("<native>")
             }
+            $stdinMode = "closed"
+            $stdinData = ""
+            $inputDescription = "argv"
+        }
+        "cursor" {
+            $combinedPrompt = switch ($Result.InputMode) {
+                "prompt" { $Result.Prompt }
+                "stdin" { $Result.Stdin }
+                "both" { "$($Result.Prompt)`n`n--- stdin context ---`n$($Result.Stdin)" }
+            }
+            $arguments.Add("--print")
+            $displayArguments.Add("--print")
+            $arguments.Add("--output-format")
+            $displayArguments.Add("--output-format")
+            $arguments.Add("text")
+            $displayArguments.Add("text")
+            if (-not [string]::IsNullOrEmpty($Result.Model)) {
+                $arguments.Add("--model")
+                $displayArguments.Add("--model")
+                $arguments.Add($Result.Model)
+                $displayArguments.Add("<model>")
+            }
+            foreach ($argument in $Result.NativeArguments) {
+                $arguments.Add($argument)
+                $displayArguments.Add("<native>")
+            }
+            $arguments.Add($combinedPrompt)
+            $displayArguments.Add("<prompt>")
             $stdinMode = "closed"
             $stdinData = ""
             $inputDescription = "argv"

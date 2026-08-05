@@ -75,7 +75,7 @@ record_dir="$test_dir/records"
 trap_bin="$test_dir/trap-bin"
 marker="$test_dir/credential-store-accessed"
 mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.gemini" "$fake_bin" "$record_dir" "$trap_bin"
-for provider in claude codex opencode; do
+for provider in claude codex opencode agent; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"
 done
@@ -108,6 +108,9 @@ clear_probe_case() {
         AAGENT_FAKE_CODEX_LOGIN_BYTES \
         AAGENT_FAKE_OPENCODE_STDOUT AAGENT_FAKE_OPENCODE_STDERR \
         AAGENT_FAKE_OPENCODE_STATUS AAGENT_FAKE_OPENCODE_DELAY AAGENT_FAKE_OPENCODE_BYTES \
+        AAGENT_FAKE_CURSOR_STATUS_STDOUT AAGENT_FAKE_CURSOR_STATUS_STDERR \
+        AAGENT_FAKE_CURSOR_STATUS_STATUS AAGENT_FAKE_CURSOR_STATUS_DELAY \
+        AAGENT_FAKE_CURSOR_STATUS_BYTES CURSOR_API_KEY \
         CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_MANTLE CLAUDE_CODE_USE_VERTEX \
         CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_USE_ANTHROPIC_AWS \
         ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_BASE_URL \
@@ -282,6 +285,82 @@ clear_probe_case
 aagent_probe_provider copilot ""
 assert_probe copilot unknown unknown 0 "Unknown" copilot_no_passive_entitlement none skipped_no_passive
 assert_equals "$(<"$record_dir/probe.count")" "$copilot_probe_count_before" "Copilot launched a provider probe"
+
+clear_probe_case
+cursor_probe_count_before="$(<"$record_dir/probe.count")"
+export CURSOR_API_KEY='seeded-secret-token'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor ready included_account 1 "Cursor account" cursor_api_key_environment environment environment_only
+assert_equals "$AAGENT_PROBE_SHADOWING_VARIABLES" "CURSOR_API_KEY" "Cursor API key evidence differs"
+assert_equals "$(<"$record_dir/probe.count")" "$cursor_probe_count_before" "Cursor API key launched a status probe"
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"status":"authenticated","message":"Secret Organization","userInfo":{"email":"person@example.com","token":"seeded-secret-token"},"plan":"ultra"}'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor ready included_account 3 "Cursor account" cursor_authenticated_status auth_status success
+[[ -z "$AAGENT_PROBE_CAPTURE" ]] || fail "Cursor retained raw status JSON"
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":false,"hasAccessToken":false,"hasRefreshToken":false}'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor unusable unknown 3 "Not signed in" cursor_not_authenticated auth_status success
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true}'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor unknown unknown 0 "Unknown" cursor_schema_failure auth_status schema_failure
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"https://api2.cursor.sh/v1"}'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor ready included_account 3 "Cursor account" cursor_authenticated_status auth_status success
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"http://127.0.0.42:11434/v1"}'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor ready local 3 "Local provider" cursor_authenticated_local auth_status success
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"http://[::1]:11434/v1"}'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor ready local 3 "Local provider" cursor_authenticated_local auth_status success
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"https://models.example.test/v1"}'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor ready unknown 3 "Custom provider" cursor_authenticated_custom auth_status success
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"https://seeded-secret-token@example.test/v1"}'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor unknown unknown 0 "Unknown" cursor_endpoint_invalid auth_status invalid_configuration
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":null}'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor unknown unknown 0 "Unknown" cursor_schema_failure auth_status schema_failure
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='not-json seeded-secret-token person@example.com'
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor unknown unknown 0 "Unknown" cursor_schema_failure auth_status schema_failure
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_DELAY=4
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor unknown unknown 0 "Unknown" cursor_probe_failed auth_status timeout
+
+clear_probe_case
+export AAGENT_FAKE_CURSOR_STATUS_BYTES=70000
+aagent_probe_provider cursor "$fake_bin/agent"
+assert_probe cursor unknown unknown 0 "Unknown" cursor_probe_failed auth_status truncated
+
+cursor_status_hex="$(hex_string status)"
+cursor_format_hex="$(hex_string --format)"
+cursor_json_hex="$(hex_string json)"
+grep -R -F "arg.0.hex=$cursor_status_hex" "$record_dir"/agent.probe.*.record >/dev/null || fail "Cursor status command was not recorded"
+grep -R -F "arg.1.hex=$cursor_format_hex" "$record_dir"/agent.probe.*.record >/dev/null || fail "Cursor status format flag differs"
+grep -R -F "arg.2.hex=$cursor_json_hex" "$record_dir"/agent.probe.*.record >/dev/null || fail "Cursor status JSON value differs"
 
 clear_probe_case
 probe_count_before="$(<"$record_dir/probe.count")"

@@ -130,7 +130,7 @@ original_path="$PATH"
 selection_environment_names=(
     HOME XDG_CONFIG_HOME AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
     AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_COPILOT_BIN
-    AAGENT_GEMINI_BIN AAGENT_AMP_BIN
+    AAGENT_GEMINI_BIN AAGENT_AMP_BIN AAGENT_CURSOR_BIN
     AAGENT_FAKE_RECORD_DIR AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROVIDER
     AAGENT_FAKE_ENV_PRESENCE AAGENT_FAKE_ENV_CAPTURE AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
     AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
@@ -138,6 +138,8 @@ selection_environment_names=(
     AAGENT_FAKE_CODEX_APP_SERVER_STDOUT AAGENT_FAKE_CODEX_APP_SERVER_STDERR
     AAGENT_FAKE_CODEX_APP_SERVER_STATUS AAGENT_FAKE_CODEX_LOGIN_STDERR
     AAGENT_FAKE_CODEX_LOGIN_STATUS AAGENT_FAKE_OPENCODE_STDOUT AAGENT_FAKE_OPENCODE_STATUS
+    AAGENT_FAKE_VERSION_STDOUT AAGENT_FAKE_HELP_STDOUT
+    AAGENT_FAKE_CURSOR_STATUS_STDOUT AAGENT_FAKE_CURSOR_STATUS_STATUS
     AAGENT_FAKE_RUN_STDOUT AAGENT_FAKE_RUN_STDERR AAGENT_FAKE_RUN_STATUS
     ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
     ANTHROPIC_BEDROCK_BASE_URL ANTHROPIC_BEDROCK_MANTLE_BASE_URL ANTHROPIC_AWS_BASE_URL
@@ -145,7 +147,7 @@ selection_environment_names=(
     ANTHROPIC_FOUNDRY_API_KEY AWS_BEARER_TOKEN_BEDROCK ANTHROPIC_CUSTOM_HEADERS
     CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_MANTLE CLAUDE_CODE_USE_VERTEX
     CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_USE_ANTHROPIC_AWS
-    CODEX_API_KEY OPENAI_API_KEY AMP_API_KEY \
+    CODEX_API_KEY OPENAI_API_KEY AMP_API_KEY CURSOR_API_KEY \
     COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE COPILOT_PROVIDER_API_KEY \
     COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS COPILOT_MODEL \
     COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL \
@@ -163,7 +165,7 @@ fake_bin="$test_dir/bin"
 record_dir="$test_dir/records"
 missing_dir="$test_dir/missing"
 mkdir -p "$home_dir/.config/aagent" "$home_dir/.gemini" "$fake_bin" "$record_dir"
-for provider in claude codex opencode copilot amp gemini; do
+for provider in claude codex opencode copilot amp gemini agent; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"
 done
@@ -191,6 +193,9 @@ clear_selection_case() {
     export AAGENT_COPILOT_BIN="$missing_dir/copilot"
     export AAGENT_GEMINI_BIN="$missing_dir/gemini"
     export AAGENT_AMP_BIN="$missing_dir/amp"
+    export AAGENT_CURSOR_BIN="$missing_dir/agent"
+    export AAGENT_FAKE_VERSION_STDOUT='2026.07.23-e383d2b'
+    export AAGENT_FAKE_HELP_STDOUT='Usage: agent Start the Cursor Agent --print status'
     export AAGENT_FAKE_RUN_STDOUT="provider-output"
     export AAGENT_FAKE_RUN_STATUS=0
 }
@@ -252,6 +257,50 @@ run_wrapper "$test_dir/codex-beats-copilot" "say hello"
 assert_equals "$AAGENT_TEST_STATUS" 0 "Codex versus Copilot scenario failed"
 find "$record_dir" -name 'codex.run.*.record' -print -quit | grep -q . || \
     fail "ChatGPT Pro did not beat GitHub-account Copilot"
+
+clear_selection_case
+export AAGENT_CURSOR_BIN="$fake_bin/agent"
+export AAGENT_CODEX_BIN="$fake_bin/codex"
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"userInfo":{"email":"person@example.com"}}'
+export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}}'
+run_wrapper "$test_dir/cursor-included" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Cursor included-account scenario failed"
+find "$record_dir" -name 'agent.run.*.record' -print -quit | grep -q . || \
+    fail "Cursor account did not beat API-only Codex"
+assert_contains "$(<"$test_dir/cursor-included.stderr")" \
+    "using cursor (included_account, Cursor account; higher funding class (included_account))" \
+    "Cursor selection notice differs"
+
+clear_selection_case
+export AAGENT_CURSOR_BIN="$fake_bin/agent"
+export AAGENT_CODEX_BIN="$fake_bin/codex"
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true}'
+export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro"},"requiresOpenaiAuth":true}}'
+run_wrapper "$test_dir/codex-beats-cursor" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Codex versus Cursor scenario failed"
+find "$record_dir" -name 'codex.run.*.record' -print -quit | grep -q . || \
+    fail "ChatGPT Pro did not beat Cursor account evidence"
+
+clear_selection_case
+export AAGENT_CURSOR_BIN="$fake_bin/agent"
+export AAGENT_CLAUDE_BIN="$fake_bin/claude"
+export CURSOR_API_KEY='seeded-secret-token'
+export AAGENT_FAKE_CLAUDE_STDOUT='{"loggedIn":true,"authMethod":"api_key","apiProvider":"console"}'
+run_wrapper "$test_dir/cursor-api-key" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Cursor API-key scenario failed"
+find "$record_dir" -name 'agent.run.*.record' -print -quit | grep -q . || \
+    fail "Cursor account credential did not beat API-only Claude"
+
+clear_selection_case
+export AAGENT_CURSOR_BIN="$fake_bin/agent"
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"endpoint":"http://localhost:11434/v1"}'
+run_wrapper "$test_dir/cursor-local-blocked" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" "$AAGENT_EXIT_UNAVAILABLE" "Cursor local route bypassed allow-local"
+[[ ! -e "$record_dir/run.count" ]] || fail "blocked Cursor local route received the prompt"
+run_wrapper "$test_dir/cursor-local-allowed" --allow-local true "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "allowed Cursor local route failed"
+find "$record_dir" -name 'agent.run.*.record' -print -quit | grep -q . || \
+    fail "allowed Cursor local route did not run"
 
 clear_selection_case
 export AAGENT_COPILOT_BIN="$fake_bin/copilot"

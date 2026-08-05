@@ -21,10 +21,11 @@ provider="${provider%.ps1}"
 kind="${AAGENT_FAKE_INVOCATION_KIND:-}"
 if [[ -z "$kind" ]]; then
     case "$provider:${1:-}:${2:-}" in
-        *:--version:*)
+        *:--version:*|*:--help:*)
             kind="probe"
             ;;
-        claude:auth:status|codex:login:status|opencode:auth:list)
+        claude:auth:status|codex:login:status|opencode:auth:list|\
+        agent:status:--format|cursor-agent:status:--format|cursor:status:--format)
             kind="probe"
             ;;
         codex:app-server:*)
@@ -133,10 +134,12 @@ if [[ "$kind" == "probe" ]]; then
     probe_profile=""
     case "$provider:${1:-}:${2:-}" in
         *:--version:*) probe_profile="VERSION" ;;
+        *:--help:*) probe_profile="HELP" ;;
         claude:auth:status) probe_profile="CLAUDE" ;;
         codex:app-server:*) probe_profile="CODEX_APP_SERVER" ;;
         codex:login:status) probe_profile="CODEX_LOGIN" ;;
         opencode:auth:list) probe_profile="OPENCODE" ;;
+        agent:status:--format|cursor-agent:status:--format|cursor:status:--format) probe_profile="CURSOR_STATUS" ;;
     esac
     if [[ -n "$probe_profile" ]]; then
         delay_name="AAGENT_FAKE_${probe_profile}_DELAY"

@@ -87,6 +87,7 @@ model_for() {
         codex) printf 'codex-model\n' ;;
         opencode) printf 'provider/model\n' ;;
         copilot) printf 'copilot-model\n' ;;
+        cursor) printf 'cursor-model\n' ;;
         gemini) printf 'gemini-model\n' ;;
         amp) printf '\n' ;;
     esac
@@ -100,6 +101,7 @@ display_name_for() {
         copilot) printf 'GitHub Copilot CLI\n' ;;
         amp) printf 'Amp\n' ;;
         gemini) printf 'Gemini CLI\n' ;;
+        cursor) printf 'Cursor CLI\n' ;;
     esac
 }
 
@@ -120,6 +122,9 @@ prompt_arguments_for() {
             ;;
         copilot)
             EXPECTED_ARGUMENTS=("--prompt" "$prompt" "--silent" "--no-ask-user" "--model" "$model" "--native-flag" "-leading-value")
+            ;;
+        cursor)
+            EXPECTED_ARGUMENTS=("--print" "--output-format" "text" "--model" "$model" "--native-flag" "-leading-value" "$prompt")
             ;;
         amp)
             EXPECTED_ARGUMENTS=("--execute" "$prompt" "--native-flag" "-leading-value")
@@ -145,6 +150,10 @@ stdin_arguments_for() {
             EXPECTED_ARGUMENTS=("--prompt" "$stdin_data" "--silent" "--no-ask-user")
             EXPECTED_STDIN=""
             ;;
+        cursor)
+            EXPECTED_ARGUMENTS=("--print" "--output-format" "text" "$stdin_data")
+            EXPECTED_STDIN=""
+            ;;
         amp) EXPECTED_ARGUMENTS=("--execute") ;;
         gemini) EXPECTED_ARGUMENTS=() ;;
     esac
@@ -164,6 +173,10 @@ both_arguments_for() {
             ;;
         copilot)
             EXPECTED_ARGUMENTS=("--prompt" "$prompt"$'\n\n--- stdin context ---\n'"$stdin_data" "--silent" "--no-ask-user")
+            EXPECTED_STDIN=""
+            ;;
+        cursor)
+            EXPECTED_ARGUMENTS=("--print" "--output-format" "text" "$prompt"$'\n\n--- stdin context ---\n'"$stdin_data")
             EXPECTED_STDIN=""
             ;;
         amp) EXPECTED_ARGUMENTS=("--execute" "$prompt") ;;
@@ -191,9 +204,10 @@ expected_work_dir="$(cd "$work_dir" && pwd -P)"
 adapter_environment_names=(
     AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
     AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_COPILOT_BIN
-    AAGENT_AMP_BIN AAGENT_GEMINI_BIN
+    AAGENT_AMP_BIN AAGENT_GEMINI_BIN AAGENT_CURSOR_BIN
     AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
     AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
+    AAGENT_FAKE_VERSION_STDOUT AAGENT_FAKE_HELP_STDOUT CURSOR_API_KEY
     AAGENT_FAKE_CLAUDE_STDOUT AAGENT_FAKE_CLAUDE_STDERR AAGENT_FAKE_CLAUDE_STATUS
     AAGENT_FAKE_CODEX_APP_SERVER_STDOUT AAGENT_FAKE_CODEX_APP_SERVER_STDERR
     AAGENT_FAKE_CODEX_APP_SERVER_STATUS AAGENT_FAKE_CODEX_LOGIN_STDOUT
@@ -209,7 +223,7 @@ for environment_name in "${adapter_environment_names[@]}"; do
     unset "$environment_name" 2>/dev/null || true
 done
 
-providers=(claude codex opencode copilot amp gemini)
+providers=(claude codex opencode copilot amp gemini cursor)
 for provider in "${providers[@]}"; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"
@@ -232,6 +246,13 @@ for provider in "${providers[@]}"; do
     export AAGENT_FAKE_RUN_STATUS="0"
     export AAGENT_FAKE_CLAUDE_STDOUT='{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max","apiProvider":"claude.ai"}'
     export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}}'
+    export AAGENT_FAKE_VERSION_STDOUT='2026.07.23-e383d2b'
+    export AAGENT_FAKE_HELP_STDOUT='Usage: agent Start the Cursor Agent --print status'
+    if [[ "$provider" == "cursor" ]]; then
+        export AAGENT_CURSOR_BIN="$fake_bin/cursor"
+    else
+        unset AAGENT_CURSOR_BIN
+    fi
 
     model="$(model_for "$provider")"
     display_name="$(display_name_for "$provider")"

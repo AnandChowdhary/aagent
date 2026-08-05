@@ -32,7 +32,13 @@ $overrideNames = @(
     "AAGENT_GEMINI_BIN", "AAGENT_CLINE_BIN", "AAGENT_GOOSE_BIN", "AAGENT_AIDER_BIN",
     "AAGENT_QWEN_BIN", "AAGENT_AMP_BIN", "AAGENT_KIMI_BIN", "AAGENT_DROID_BIN",
     "AAGENT_CRUSH_BIN", "AAGENT_VIBE_BIN", "AAGENT_KIRO_BIN", "AAGENT_CURSOR_BIN",
-    "AAGENT_FAKE_RECORD_DIR"
+    "AAGENT_FAKE_RECORD_DIR", "AAGENT_FAKE_INVOCATION_KIND",
+    "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR", "AAGENT_FAKE_PROBE_STATUS",
+    "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES",
+    "AAGENT_FAKE_VERSION_STDOUT", "AAGENT_FAKE_VERSION_STATUS",
+    "AAGENT_FAKE_VERSION_DELAY", "AAGENT_FAKE_VERSION_BYTES",
+    "AAGENT_FAKE_HELP_STDOUT", "AAGENT_FAKE_HELP_STATUS",
+    "AAGENT_FAKE_HELP_DELAY", "AAGENT_FAKE_HELP_BYTES"
 )
 $originalOverrides = @{}
 foreach ($name in $overrideNames) {
@@ -86,10 +92,16 @@ try {
     Assert-DiscoveryEqual (Get-AagentAdapter "copilot").Probe "environment precedence only" "Copilot probe metadata differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "amp").Model "none" "Amp model capability differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "cursor").Executable "agent" "Cursor executable differs."
-    Assert-DiscoveryEqual (Get-AagentAdapter "cursor").Tier "planned" "Cursor tier differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "cursor").Tier "tier2" "Cursor tier differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "cursor").Command "agent --print --output-format text PROMPT" "Cursor command differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "cursor").Probe "status --format json" "Cursor probe metadata differs."
 
     function global:gemini { "this function must not be discovered" }
     $env:AAGENT_FAKE_RECORD_DIR = $recordDir
+    $env:AAGENT_FAKE_VERSION_STDOUT = "2026.07.23-e383d2b"
+    $env:AAGENT_FAKE_VERSION_STATUS = "0"
+    $env:AAGENT_FAKE_HELP_STDOUT = "Usage: agent Start the Cursor Agent --print status"
+    $env:AAGENT_FAKE_HELP_STATUS = "0"
     $env:PATH = $fakeBin
     $results = Get-AagentDiscovery
     $env:PATH = $originalPath
@@ -99,8 +111,24 @@ try {
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "gemini").Status "missing" "A function was accepted as Gemini."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "amp").Status "missing" "Amp missing status differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "copilot").Status "installed" "Installed Copilot status differs."
-    Assert-DiscoveryEqual (Get-DiscoveryResult $results "cursor").Status "unsupported" "Installed planned Cursor status differs."
+    Assert-DiscoveryEqual (Get-DiscoveryResult $results "cursor").Status "installed" "Installed Cursor status differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "cursor").Path (Join-Path $fakeBin "agent.ps1") "Cursor path collides with aagent."
+    Assert-DiscoveryEqual (Get-DiscoveryResult $results "cursor").Reason "Cursor CLI signature found" "Cursor signature reason differs."
+
+    $fallbackBin = Join-Path $testDir "fallback-bin"
+    [IO.Directory]::CreateDirectory($fallbackBin) | Out-Null
+    try {
+        New-Item -ItemType SymbolicLink -Path (Join-Path $fallbackBin "agent.ps1") -Target $aagentScript -ErrorAction Stop | Out-Null
+    } catch {
+        Copy-Item -LiteralPath $aagentScript -Destination (Join-Path $fallbackBin "agent.ps1")
+    }
+    Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fallbackBin "cursor-agent.ps1")
+    $env:PATH = $fallbackBin
+    $fallbackResults = Get-AagentDiscovery
+    $env:PATH = $originalPath
+    Assert-DiscoveryEqual (Get-DiscoveryResult $fallbackResults "cursor").Status "installed" "Legacy Cursor alias fallback was rejected."
+    Assert-DiscoveryEqual (Get-DiscoveryResult $fallbackResults "cursor").Path (Join-Path $fallbackBin "cursor-agent.ps1") "Legacy Cursor alias path differs."
+    Assert-DiscoveryEqual (Get-DiscoveryResult $fallbackResults "cursor").Reason "Cursor CLI signature found via legacy cursor-agent" "Legacy Cursor reason differs."
     if ($IsWindows) {
         Assert-DiscoveryEqual (Get-DiscoveryResult $results "qwen").Status "unsupported" "Windows .cmd discovery differs."
 
@@ -137,11 +165,25 @@ try {
         Assert-DiscoveryEqual (Get-DiscoveryResult $results "opencode").Status "missing" "Broken override symlink was accepted."
     }
 
+    $env:AAGENT_CURSOR_BIN = $aagentScript
+    $env:PATH = $fakeBin
+    $cursorOverrideResults = Get-AagentDiscovery
+    $env:PATH = $originalPath
+    Assert-DiscoveryEqual (Get-DiscoveryResult $cursorOverrideResults "cursor").Status "missing" "Cursor accepted an aagent override."
+    Assert-DiscoveryEqual (Get-DiscoveryResult $cursorOverrideResults "cursor").Reason "invalid Cursor CLI executable override: AAGENT_CURSOR_BIN" "Cursor invalid override reason differs."
+    Remove-Item Env:AAGENT_CURSOR_BIN
+
     if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) {
         throw "Discovery executed a provider run."
     }
-    if (Test-Path -LiteralPath (Join-Path $recordDir "probe.count")) {
-        throw "Discovery executed an authentication probe."
+    if (-not (Test-Path -LiteralPath (Join-Path $recordDir "probe.count"))) {
+        throw "Cursor signature validation did not run."
+    }
+    foreach ($record in (Get-ChildItem -LiteralPath $recordDir -Filter "*.record")) {
+        $contents = [IO.File]::ReadAllText($record.FullName)
+        if ($contents.Contains("arg.0.hex=737461747573") -or $contents.Contains("arg.0.hex=61757468")) {
+            throw "Discovery executed an authentication probe."
+        }
     }
     $runnerSource = [IO.File]::ReadAllText($aagentScript)
     if ($runnerSource -match "curl|wget|Invoke-WebRequest") {

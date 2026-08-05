@@ -157,7 +157,7 @@ status interfaces. Probes must:
 
 - run without a TTY and with a short timeout;
 - avoid model requests and login flows;
-- avoid network calls by default;
+- avoid network calls by default, with documented passive status exceptions;
 - parse an allowlist of nonsecret fields and discard the raw response;
 - check environment variables by presence only;
 - never invoke an `apiKeyHelper` or other credential-producing command;
@@ -178,6 +178,7 @@ file existence alone is low-confidence evidence and cannot establish a plan.
 | GitHub Copilot CLI | No CLI probe; documented BYOK and GitHub token variables are checked by presence, with only the BYOK endpoint authority classified | BYOK wins over GitHub auth. Loopback is local, a documented BYOK credential is metered, remote BYOK without one is unknown, and GitHub token presence is at most `included_account`. Stored OAuth does not prove entitlement. |
 | Gemini CLI | `security.auth.selectedType` from documented settings | `oauth-personal` is account-included; `gemini-api-key`, Vertex, and ADC paths are metered or organization-funded. The local signal cannot distinguish Google free, AI Pro/Ultra, or Workspace tiers. |
 | Amp | Installed/account state and `amp usage` when explicitly requested | `AMP_API_KEY` is an Amp account credential, not an Anthropic key. Credential shape cannot distinguish subscription, linked ChatGPT access, credits, or pay-as-you-go, so passive funding is often `unknown`. |
+| Cursor CLI | `agent status --format json`, reduced to three authentication booleans and an optional endpoint class; `CURSOR_API_KEY` presence is a lower-confidence fallback | Authenticated vendor accounts are at most `included_account`; local endpoints require explicit opt-in, custom endpoints are funding-unknown, and plan or remaining allowance is never inferred. The status command may perform account enrichment. |
 
 Additional adapters may classify only documented provider/model paths.
 Examples include Qwen's Coding Plan endpoint as included, Goose with Ollama as

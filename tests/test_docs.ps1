@@ -94,6 +94,24 @@ Assert-DocsContains $securitySpec '`--allow-all-paths`' `
 Assert-DocsContains $ledger '- [x] **P12A-02 Implement `copilot`.**' `
     "Implementation ledger does not mark Copilot complete"
 
+$cursorImplementationContract = @(
+    'Cursor CLI (`cursor`)',
+    'agent --print --output-format text PROMPT',
+    'AAGENT_CURSOR_BIN',
+    'status --format json',
+    'CURSOR_API_KEY',
+    'included_account',
+    'cursor-agent'
+)
+foreach ($evidence in $cursorImplementationContract) {
+    Assert-DocsContains ($readme + $adapterSpec + $probeSpec) $evidence `
+        "Cursor implementation documentation omitted $evidence"
+}
+Assert-DocsContains $securitySpec '`--approve-mcps`' `
+    "Security documentation omitted Cursor permission escalation flags"
+Assert-DocsContains $ledger '- [x] **P12A-04 Implement `cursor`.**' `
+    "Implementation ledger does not mark Cursor complete"
+
 $helpContract = @(
     "aagent [OPTIONS] [PROMPT...]",
     "aagent providers",

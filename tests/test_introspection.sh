@@ -34,7 +34,8 @@ missing_dir="$test_dir/missing"
 mkdir -p "$home_dir/.config/aagent" "$fake_bin" "$record_dir"
 cp "$fake_provider" "$fake_bin/codex"
 cp "$fake_provider" "$fake_bin/copilot"
-chmod +x "$fake_bin/codex" "$fake_bin/copilot"
+cp "$fake_provider" "$fake_bin/agent"
+chmod +x "$fake_bin/codex" "$fake_bin/copilot" "$fake_bin/agent"
 
 export HOME="$home_dir"
 export XDG_CONFIG_HOME="$home_dir/.config"
@@ -65,9 +66,15 @@ clear_case() {
     unset COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE COPILOT_PROVIDER_API_KEY
     unset COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS COPILOT_MODEL
     unset COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
+    unset CURSOR_API_KEY AAGENT_FAKE_CURSOR_STATUS_STDOUT AAGENT_FAKE_CURSOR_STATUS_STATUS
+    unset AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
+    unset AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
     unset AAGENT_FAKE_VERSION_DELAY AAGENT_FAKE_VERSION_BYTES
     export AAGENT_FAKE_VERSION_STDOUT='codex-cli 1.2.3'
     export AAGENT_FAKE_VERSION_STATUS=0
+    export AAGENT_FAKE_HELP_STDOUT='Usage: agent Start the Cursor Agent --print status'
+    export AAGENT_FAKE_HELP_STATUS=0
+    export AAGENT_FAKE_CURSOR_STATUS_STATUS=0
 }
 
 run_wrapper() {
@@ -131,6 +138,37 @@ assert_contains "$copilot_doctor_output" "command: copilot --prompt PROMPT --sil
 assert_contains "$copilot_doctor_output" "no allow-all or yolo" "Copilot doctor omitted safety caveat"
 assert_equals "$(<"$record_dir/probe.count")" 1 "Copilot doctor ran more than its version probe"
 [[ ! -e "$record_dir/run.count" ]] || fail "Copilot doctor launched a model"
+
+clear_case
+export AAGENT_CURSOR_BIN="$fake_bin/agent"
+export AAGENT_FAKE_VERSION_STDOUT='2026.07.23-e383d2b'
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"userInfo":{"email":"person@example.com","team":"Secret Org"},"message":"seeded-secret-token"}'
+run_wrapper "$test_dir/cursor-providers" providers
+assert_equals "$AAGENT_TEST_STATUS" 0 "Cursor providers inspection failed"
+cursor_providers_output="$(<"$test_dir/cursor-providers.stdout")"
+assert_contains "$cursor_providers_output" "cursor" "Cursor providers output omitted provider"
+assert_contains "$cursor_providers_output" "included_account" "Cursor providers output omitted funding"
+assert_not_contains "$cursor_providers_output" "person@example.com" "Cursor providers output leaked email"
+assert_not_contains "$cursor_providers_output" "Secret Org" "Cursor providers output leaked team"
+assert_not_contains "$cursor_providers_output" "seeded-secret-token" "Cursor providers output leaked status message"
+assert_equals "$(<"$record_dir/probe.count")" 3 "Cursor providers probe count differs"
+
+clear_case
+export AAGENT_CURSOR_BIN="$fake_bin/agent"
+export AAGENT_FAKE_VERSION_STDOUT='2026.07.23-e383d2b'
+export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true}'
+run_wrapper "$test_dir/cursor-doctor" doctor cursor
+assert_equals "$AAGENT_TEST_STATUS" 0 "Cursor doctor failed"
+cursor_doctor_output="$(<"$test_dir/cursor-doctor.stdout")"
+assert_contains "$cursor_doctor_output" "provider: cursor" "Cursor doctor omitted provider"
+assert_contains "$cursor_doctor_output" "tier: tier2" "Cursor doctor omitted tier"
+assert_contains "$cursor_doctor_output" "version: 2026.07.23-e383d2b" "Cursor doctor omitted safe version"
+assert_contains "$cursor_doctor_output" "authentication: ready" "Cursor doctor omitted readiness"
+assert_contains "$cursor_doctor_output" "funding: included_account" "Cursor doctor omitted funding"
+assert_contains "$cursor_doctor_output" "command: agent --print --output-format text PROMPT" "Cursor doctor omitted command"
+assert_contains "$cursor_doctor_output" "explicitly forces" "Cursor doctor omitted safety caveat"
+assert_equals "$(<"$record_dir/probe.count")" 4 "Cursor doctor probe count differs"
+[[ ! -e "$record_dir/run.count" ]] || fail "Cursor doctor launched a model"
 
 clear_case
 run_wrapper "$test_dir/missing-doctor" doctor claude

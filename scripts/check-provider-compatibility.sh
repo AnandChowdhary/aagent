@@ -49,7 +49,7 @@ fi
 
 readonly AAGENT_COMPAT_PROVIDER="$1"
 case "$AAGENT_COMPAT_PROVIDER" in
-    claude|codex|opencode|copilot|amp|gemini) ;;
+    claude|codex|opencode|copilot|amp|gemini|cursor) ;;
     *)
         compat_usage
         printf 'aagent compatibility: unknown supported provider: %s\n' "$AAGENT_COMPAT_PROVIDER" >&2
@@ -60,7 +60,11 @@ esac
 if (( $# == 2 )); then
     AAGENT_COMPAT_EXECUTABLE="$2"
 else
-    AAGENT_COMPAT_EXECUTABLE="$(command -v "$AAGENT_COMPAT_PROVIDER" || true)"
+    AAGENT_COMPAT_COMMAND="$AAGENT_COMPAT_PROVIDER"
+    if [[ "$AAGENT_COMPAT_PROVIDER" == "cursor" ]]; then
+        AAGENT_COMPAT_COMMAND="agent"
+    fi
+    AAGENT_COMPAT_EXECUTABLE="$(command -v "$AAGENT_COMPAT_COMMAND" || true)"
 fi
 [[ -n "$AAGENT_COMPAT_EXECUTABLE" ]] || \
     compat_fail "$AAGENT_COMPAT_PROVIDER executable was not found"
@@ -119,6 +123,16 @@ case "$AAGENT_COMPAT_PROVIDER" in
         compat_capture help "$AAGENT_COMPAT_EXECUTABLE" --help
         compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--prompt"
         compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--model"
+        ;;
+    cursor)
+        compat_capture help "$AAGENT_COMPAT_EXECUTABLE" --help
+        compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "Start the Cursor Agent"
+        compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--print"
+        compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--output-format"
+        compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--model"
+        compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "--force"
+        compat_capture status-help "$AAGENT_COMPAT_EXECUTABLE" status --help
+        compat_require status-help "$AAGENT_COMPAT_LAST_OUTPUT" "--format"
         ;;
 esac
 

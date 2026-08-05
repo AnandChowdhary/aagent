@@ -48,6 +48,7 @@ case "$surface" in
             copilot) printf '%s\n' 'Usage: copilot --prompt --model --silent --no-ask-user' ;;
             amp) printf '%s\n' 'Usage: amp --execute --stream-json' ;;
             gemini) printf '%s\n' 'Usage: gemini --prompt --model' ;;
+            cursor) printf '%s\n' 'Usage: agent Start the Cursor Agent --print --output-format --model --force status' ;;
         esac
         ;;
     'auth --help')
@@ -62,12 +63,13 @@ case "$surface" in
     'login --help') printf '%s\n' 'codex login status' ;;
     'run --help') printf '%s\n' 'opencode run --model --format' ;;
     'help providers') printf '%s\n' 'COPILOT_PROVIDER_BASE_URL' ;;
+    'status --help') printf '%s\n' 'agent status --format json' ;;
     *) exit 2 ;;
 esac
 EOF
 chmod +x "$fake_cli"
 
-for provider in claude codex opencode copilot amp gemini; do
+for provider in claude codex opencode copilot amp gemini cursor; do
     output_dir="$test_dir/reports $provider"
     output="$(
         AAGENT_FAKE_COMPAT_PROVIDER="$provider" \
@@ -80,6 +82,15 @@ for provider in claude codex opencode copilot amp gemini; do
     assert_contains "$report" "## version" "$provider report omitted version output"
     assert_contains "$report" "## help" "$provider report omitted help output"
 done
+
+ln -s "$fake_cli" "$test_dir/agent"
+default_cursor_output="$(
+    PATH="$test_dir:$PATH" \
+    AAGENT_FAKE_COMPAT_PROVIDER=cursor \
+    AAGENT_COMPAT_OUTPUT_DIR="$test_dir/default-cursor-report" \
+        bash "$compatibility_script" cursor
+)"
+assert_contains "$default_cursor_output" "passed for cursor" "Cursor default executable is not agent"
 
 set +e
 AAGENT_FAKE_COMPAT_PROVIDER=amp \
@@ -94,12 +105,12 @@ assert_contains "$(<"$test_dir/drift.stderr")" \
     "amp help no longer advertises --execute" "command drift diagnostic differs"
 
 set +e
-bash "$compatibility_script" cursor "$fake_cli" \
+bash "$compatibility_script" droid "$fake_cli" \
     >"$test_dir/unknown.stdout" 2>"$test_dir/unknown.stderr"
 unknown_status=$?
 set -e
 [[ "$unknown_status" == 64 ]] || fail "unknown provider did not use status 64"
 assert_contains "$(<"$test_dir/unknown.stderr")" \
-    "unknown supported provider: cursor" "unknown provider diagnostic differs"
+    "unknown supported provider: droid" "unknown provider diagnostic differs"
 
 printf 'Compatibility workflow Bash tests passed.\n'
