@@ -46,7 +46,9 @@ classification. A narrow Copilot exception reads
 `COPILOT_PROVIDER_BASE_URL` only long enough to validate the HTTP(S) authority
 and classify an exact loopback host; the raw URL is discarded and never
 emitted, and embedded user information is rejected. Credential and header
-values remain unread. The Cursor status exception reduces provider output to
+values remain unread. The Droid settings exception reads only a bounded
+selected `model` and referenced custom `baseUrl`; it ignores raw `apiKey` and
+arbitrary fields, then discards the document. The Cursor status exception reduces provider output to
 three authentication booleans and a fixed endpoint class; the raw endpoint,
 status/message text, `userInfo`, account data, and every other arbitrary field
 are discarded. The other value-handling exception is the documented Codex

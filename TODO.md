@@ -852,9 +852,16 @@ Deliverable: separately releasable adapter batches using the same contract
   local endpoints, and cover adapter, discovery, probe, selection,
   introspection, security, documentation, and scheduled compatibility paths.
 
-- [ ] **P12A-05 Revalidate and implement Factory Droid.**
-  Confirm `droid exec`, spec-mode default, autonomy flags, structured output,
+- [x] **P12A-05 Revalidate and implement Factory Droid.**
+  Confirm `droid exec`, read-only autonomy default, opt-in Spec Mode, autonomy flags, structured output,
   account/BYOK evidence, then add adapter, safety warning, and complete tests.
+
+  Evidence: [2026-08-05 Factory Droid revalidation](docs/research/factory-droid-2026-08-05.md)
+  freezes official `droid@0.188.0` invocation, input, output, session, safety,
+  account, settings, and funding behavior. Bash and PowerShell implement the
+  safe launch plan and redacted passive classifier with adapter, discovery,
+  probe, selection, introspection, security, documentation, and scheduled
+  credential-free GitHub Actions compatibility coverage.
 
 ### Phase 12B - Provider-routing adapters
 

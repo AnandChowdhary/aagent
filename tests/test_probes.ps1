@@ -88,7 +88,7 @@ $probeEnvironmentNames = @(
     "AAGENT_FAKE_OPENCODE_STATUS", "AAGENT_FAKE_OPENCODE_DELAY", "AAGENT_FAKE_OPENCODE_BYTES",
     "AAGENT_FAKE_CURSOR_STATUS_STDOUT", "AAGENT_FAKE_CURSOR_STATUS_STDERR",
     "AAGENT_FAKE_CURSOR_STATUS_STATUS", "AAGENT_FAKE_CURSOR_STATUS_DELAY",
-    "AAGENT_FAKE_CURSOR_STATUS_BYTES", "CURSOR_API_KEY",
+    "AAGENT_FAKE_CURSOR_STATUS_BYTES", "CURSOR_API_KEY", "FACTORY_API_KEY",
     "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
     "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
@@ -128,6 +128,7 @@ try {
         (Join-Path $homeDir ".claude"),
         (Join-Path $homeDir ".codex"),
         (Join-Path $homeDir ".gemini"),
+        (Join-Path $homeDir ".factory"),
         $fakeBin,
         $recordDir,
         $trapBin
@@ -148,6 +149,7 @@ try {
     )
     [IO.File]::WriteAllText((Join-Path $homeDir ".codex/auth.json"), "seeded-secret-token", $utf8)
     [IO.File]::WriteAllText((Join-Path $homeDir ".gemini/oauth_creds.json"), "seeded-secret-token", $utf8)
+    [IO.File]::WriteAllText((Join-Path $homeDir ".factory/credentials.json"), "seeded-secret-token", $utf8)
     [IO.File]::WriteAllText(
         (Join-Path $homeDir ".claude/settings.json"),
         '{"apiKeyHelper":"api-key-helper"}',
@@ -433,6 +435,85 @@ try {
     })) {
         throw "Cursor status --format json command differs."
     }
+
+    $factorySettings = Join-Path $homeDir ".factory/settings.json"
+    $factoryLocalSettings = Join-Path $homeDir ".factory/settings.local.json"
+
+    Clear-ProbeCase
+    Remove-Item -LiteralPath $factorySettings, $factoryLocalSettings -ErrorAction SilentlyContinue
+    $result = Invoke-AagentProviderProbe "droid"
+    Assert-ProbeResult $result droid unknown unknown 0 "Unknown" `
+        droid_no_passive_account_probe none skipped_no_passive
+
+    Clear-ProbeCase
+    $env:FACTORY_API_KEY = "seeded-secret-token"
+    $result = Invoke-AagentProviderProbe "droid"
+    Assert-ProbeResult $result droid ready unknown 1 "Factory account" `
+        droid_factory_api_key environment environment_only
+    Assert-ProbeEqual ($result.ShadowingVariables -join ",") "FACTORY_API_KEY" `
+        "Droid API key evidence differs."
+
+    Clear-ProbeCase
+    $env:FACTORY_API_KEY = "seeded-secret-token"
+    [IO.File]::WriteAllText(
+        $factorySettings,
+        '{"model":"custom:remote-0","customModels":[{"model":"remote","baseUrl":"https://models.example.test/v1","apiKey":"seeded-secret-token","email":"person@example.com","organization":"Secret Organization"}]}',
+        $utf8
+    )
+    $result = Invoke-AagentProviderProbe "droid"
+    Assert-ProbeResult $result droid ready payg_byok 1 "Factory BYOK model" `
+        droid_custom_model_byok settings success
+    Assert-ProbeEqual ($result.ShadowingVariables -join ",") "FACTORY_API_KEY" `
+        "Droid BYOK shadow evidence differs."
+
+    Clear-ProbeCase
+    [IO.File]::WriteAllText(
+        $factorySettings,
+        '{"model":"custom:local-0","customModels":[{"model":"local","baseUrl":"http://127.0.0.1:11434/v1","apiKey":"seeded-secret-token"}]}',
+        $utf8
+    )
+    $result = Invoke-AagentProviderProbe "droid"
+    Assert-ProbeResult $result droid unknown local 0 "Local custom model" `
+        droid_custom_model_local settings success
+
+    Clear-ProbeCase
+    $env:FACTORY_API_KEY = "seeded-secret-token"
+    [IO.File]::WriteAllText($factorySettings, '{"model":"claude-sonnet-managed"}', $utf8)
+    $result = Invoke-AagentProviderProbe "droid"
+    Assert-ProbeResult $result droid ready unknown 1 "Factory account" `
+        droid_factory_api_key environment environment_only
+
+    Clear-ProbeCase
+    $env:FACTORY_API_KEY = "seeded-secret-token"
+    [IO.File]::WriteAllText($factorySettings, "malformed seeded-secret-token person@example.com", $utf8)
+    $result = Invoke-AagentProviderProbe "droid"
+    Assert-ProbeResult $result droid ready unknown 1 "Factory account" `
+        droid_settings_unavailable settings schema_failure
+
+    Clear-ProbeCase
+    [IO.File]::WriteAllText($factorySettings, ("x" * 70000), $utf8)
+    $result = Invoke-AagentProviderProbe "droid"
+    Assert-ProbeResult $result droid unknown unknown 0 "Factory account" `
+        droid_settings_unavailable settings truncated
+
+    Clear-ProbeCase
+    $projectDir = Join-Path $testDir "project"
+    [IO.Directory]::CreateDirectory((Join-Path $projectDir ".git")) | Out-Null
+    [IO.Directory]::CreateDirectory((Join-Path $projectDir ".factory")) | Out-Null
+    [IO.File]::WriteAllText(
+        $factorySettings,
+        '{"model":"custom:user-0","customModels":[{"baseUrl":"https://user.example.test/v1"}]}',
+        $utf8
+    )
+    [IO.File]::WriteAllText(
+        (Join-Path $projectDir ".factory/settings.local.json"),
+        '{"model":"custom:project-0","customModels":[{"baseUrl":"http://localhost:11434/v1"}]}',
+        $utf8
+    )
+    $result = Invoke-AagentProviderProbe "droid" "" $projectDir
+    Assert-ProbeResult $result droid unknown local 0 "Local custom model" `
+        droid_custom_model_local settings success
+    Remove-Item -LiteralPath $factorySettings -ErrorAction SilentlyContinue
 
     Clear-ProbeCase
     $probeCountBefore = [IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()

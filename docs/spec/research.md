@@ -42,7 +42,8 @@ The researched tools differ materially in the following areas:
   tools use browser login, some environment API keys, and some support both.
 - **Side effects:** Aider enables automatic Git commits by default. Cursor's
   headless mode proposes changes unless forced. Factory Droid defaults to
-  read-only spec mode. A wrapper must not erase these distinctions.
+  read-only autonomy; Spec Mode and higher autonomy are separate explicit
+  controls. A wrapper must not erase these distinctions.
 - **Exit behavior:** Several providers publish exit-code contracts, while
   others only promise a non-zero failure. The wrapper can preserve an exit code
   but cannot reinterpret every code correctly.
@@ -85,6 +86,9 @@ paid model request:
   `gh auth status`, and inaccessible stored OAuth remain funding-unknown.
 - Cursor exposes an authentication status command, although its plan tier is
   not reported.
+- Factory Droid exposes no passive account/plan command. Its account API key
+  proves readiness but not funding; selected custom-model settings can identify
+  only local versus remote BYOK routing.
 
 Providers without a stable passive probe can still be used, but receive lower
 authentication confidence during automatic selection.

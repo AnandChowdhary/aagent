@@ -73,14 +73,14 @@ $environmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "PATH", "AAGENT_FAKE_RECORD_DIR",
     "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
     "AAGENT_CODEX_BIN", "AAGENT_CLAUDE_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN",
-    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN", "AAGENT_CURSOR_BIN",
+    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN", "AAGENT_CURSOR_BIN", "AAGENT_DROID_BIN",
     "AAGENT_FAKE_CODEX_APP_SERVER_STDOUT", "AAGENT_FAKE_CODEX_APP_SERVER_STATUS",
     "AAGENT_FAKE_RUN_STATUS", "AAGENT_FAKE_INVOCATION_KIND",
     "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR", "AAGENT_FAKE_PROBE_STATUS",
     "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES", "CODEX_API_KEY", "OPENAI_API_KEY",
     "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_HEADERS",
     "AAGENT_FAKE_VERSION_STDOUT", "AAGENT_FAKE_HELP_STDOUT",
-    "AAGENT_FAKE_CURSOR_STATUS_STDOUT", "CURSOR_API_KEY"
+    "AAGENT_FAKE_CURSOR_STATUS_STDOUT", "CURSOR_API_KEY", "FACTORY_API_KEY"
 )
 $originalEnvironment = @{}
 foreach ($name in $environmentNames) {
@@ -99,14 +99,16 @@ try {
     $markerDir = Join-Path $testDir "markers"
     foreach ($directory in @(
         $homeDir, $configDir, $appDataDir, $fakeBin, $recordDir, $workDir, $markerDir,
-        (Join-Path $homeDir ".claude"), (Join-Path $homeDir ".codex")
+        (Join-Path $homeDir ".claude"), (Join-Path $homeDir ".codex"), (Join-Path $homeDir ".factory")
     )) { [IO.Directory]::CreateDirectory($directory) | Out-Null }
     $codexPath = Join-Path $fakeBin "codex.ps1"
     $copilotPath = Join-Path $fakeBin "copilot.ps1"
     $cursorPath = Join-Path $fakeBin "agent.ps1"
+    $droidPath = Join-Path $fakeBin "droid.ps1"
     Copy-Item -LiteralPath $fakeProvider -Destination $codexPath
     Copy-Item -LiteralPath $fakeProvider -Destination $copilotPath
     Copy-Item -LiteralPath $fakeProvider -Destination $cursorPath
+    Copy-Item -LiteralPath $fakeProvider -Destination $droidPath
     foreach ($credentialPath in @(
         (Join-Path $homeDir ".claude/.credentials.json"),
         (Join-Path $homeDir ".codex/auth.json")
@@ -130,11 +132,18 @@ try {
     $env:AAGENT_GEMINI_BIN = Join-Path $missingDir "gemini"
     $env:AAGENT_AMP_BIN = Join-Path $missingDir "amp"
     $env:AAGENT_CURSOR_BIN = $cursorPath
+    $env:AAGENT_DROID_BIN = $droidPath
     $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro","email":"person@example.com","organization":"Secret Org"},"requiresOpenaiAuth":true}}'
     $env:AAGENT_FAKE_CODEX_APP_SERVER_STATUS = "0"
     $env:AAGENT_FAKE_VERSION_STDOUT = "2026.07.23-e383d2b"
     $env:AAGENT_FAKE_HELP_STDOUT = "Usage: agent Start the Cursor Agent --print status"
     $env:AAGENT_FAKE_CURSOR_STATUS_STDOUT = '{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"status":"seeded-secret-token","message":"Cursor Secret Org","userInfo":{"email":"cursor@example.com","token":"cursor-secret-token"}}'
+    $env:FACTORY_API_KEY = "seeded-secret-token"
+    [IO.File]::WriteAllText(
+        (Join-Path $homeDir ".factory/settings.json"),
+        '{"model":"custom:remote-0","customModels":[{"baseUrl":"https://models.example.test/v1","apiKey":"factory-secret-token","email":"factory@example.com","organization":"Factory Secret Org"}]}',
+        $utf8
+    )
     $env:AAGENT_FAKE_RUN_STATUS = "0"
     foreach ($name in @(
         "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
@@ -156,6 +165,9 @@ try {
     Assert-NotContains $result.Stdout "cursor@example.com" "providers leaked Cursor email"
     Assert-NotContains $result.Stdout "Cursor Secret Org" "providers leaked Cursor team"
     Assert-NotContains $result.Stdout "cursor-secret-token" "providers leaked Cursor status"
+    Assert-NotContains $result.Stdout "factory-secret-token" "providers leaked Droid API key"
+    Assert-NotContains $result.Stdout "factory@example.com" "providers leaked Droid email"
+    Assert-NotContains $result.Stdout "Factory Secret Org" "providers leaked Droid organization"
     if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) { throw "credential audit launched a model" }
 
     Remove-Item -LiteralPath $recordDir -Recurse -Force
@@ -189,6 +201,14 @@ try {
         Assert-NotContains $result.Stdout $flag "wrapper injected $flag"
     }
     if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) { throw "safe dry-run launched a model" }
+
+    $result = Invoke-Wrapper @("--provider", "droid", "--dry-run", "say hello")
+    Assert-Equal $result.Status 0 "Droid safe dry-run failed"
+    foreach ($flag in @("--auto", "--skip-permissions-unsafe", "--use-spec")) {
+        Assert-NotContains $result.Stdout $flag "Droid wrapper injected $flag"
+    }
+    Assert-Contains $result.Stdout "exec" "Droid dry-run omitted exec"
+    if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) { throw "Droid safe dry-run launched a model" }
 
     $hostileProvider = "not-a-provider`nforged: success"
     $result = Invoke-Wrapper @("doctor", $hostileProvider)

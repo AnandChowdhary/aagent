@@ -71,11 +71,12 @@ record_dir="$test_dir/records"
 work_dir="$test_dir/work dir"
 missing_dir="$test_dir/missing"
 marker_dir="$test_dir/markers"
-mkdir -p "$home_dir/.claude" "$home_dir/.codex" "$fake_bin" "$record_dir" "$work_dir" "$marker_dir"
+mkdir -p "$home_dir/.claude" "$home_dir/.codex" "$home_dir/.factory" "$fake_bin" "$record_dir" "$work_dir" "$marker_dir"
 cp "$fake_provider" "$fake_bin/codex"
 cp "$fake_provider" "$fake_bin/copilot"
 cp "$fake_provider" "$fake_bin/agent"
-chmod +x "$fake_bin/codex" "$fake_bin/copilot" "$fake_bin/agent"
+cp "$fake_provider" "$fake_bin/droid"
+chmod +x "$fake_bin/codex" "$fake_bin/copilot" "$fake_bin/agent" "$fake_bin/droid"
 
 # Credential locations are traps. A direct read would block on the FIFO; helper
 # lookups leave a marker. The provider status fixture is the only allowed source.
@@ -97,10 +98,13 @@ export AAGENT_COPILOT_BIN="$fake_bin/copilot"
 export AAGENT_GEMINI_BIN="$missing_dir/gemini"
 export AAGENT_AMP_BIN="$missing_dir/amp"
 export AAGENT_CURSOR_BIN="$fake_bin/agent"
+export AAGENT_DROID_BIN="$fake_bin/droid"
 export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro","email":"person@example.com","organization":"Secret Org"},"requiresOpenaiAuth":true}}'
 export AAGENT_FAKE_VERSION_STDOUT='2026.07.23-e383d2b'
 export AAGENT_FAKE_HELP_STDOUT='Usage: agent Start the Cursor Agent --print status'
 export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"status":"seeded-secret-token","message":"Cursor Secret Org","userInfo":{"email":"cursor@example.com","token":"cursor-secret-token"}}'
+export FACTORY_API_KEY='seeded-secret-token'
+printf '%s' '{"model":"custom:remote-0","customModels":[{"baseUrl":"https://models.example.test/v1","apiKey":"factory-secret-token","email":"factory@example.com","organization":"Factory Secret Org"}]}' >"$home_dir/.factory/settings.json"
 export AAGENT_FAKE_CODEX_APP_SERVER_STATUS=0
 export AAGENT_FAKE_RUN_STATUS=0
 unset AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
@@ -128,6 +132,9 @@ assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "seeded-secret-tok
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "cursor@example.com" "providers leaked Cursor email"
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "Cursor Secret Org" "providers leaked Cursor team"
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "cursor-secret-token" "providers leaked Cursor status"
+assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "factory-secret-token" "providers leaked Droid API key"
+assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "factory@example.com" "providers leaked Droid email"
+assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "Factory Secret Org" "providers leaked Droid organization"
 [[ ! -e "$record_dir/run.count" ]] || fail "credential audit launched a model"
 
 rm -rf "$record_dir"
@@ -159,6 +166,15 @@ for flag in --yolo --dangerously-skip-permissions --allow-all-tools \
     assert_not_contains "$safe_plan" "$flag" "wrapper injected $flag"
 done
 [[ ! -e "$record_dir/run.count" ]] || fail "safe dry-run launched a model"
+
+run_wrapper "$test_dir/droid-safe-dry-run" --provider droid --dry-run 'say hello'
+assert_equals "$AAGENT_TEST_STATUS" 0 "Droid safe dry-run failed"
+droid_safe_plan="$(<"$test_dir/droid-safe-dry-run.stdout")"
+for flag in --auto --skip-permissions-unsafe --use-spec; do
+    assert_not_contains "$droid_safe_plan" "$flag" "Droid wrapper injected $flag"
+done
+assert_contains "$droid_safe_plan" "exec" "Droid dry-run omitted exec"
+[[ ! -e "$record_dir/run.count" ]] || fail "Droid safe dry-run launched a model"
 
 hostile_provider=$'not-a-provider\nforged: success'
 run_wrapper "$test_dir/hostile-provider" doctor "$hostile_provider"

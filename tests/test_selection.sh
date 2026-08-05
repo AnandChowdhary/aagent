@@ -130,7 +130,7 @@ original_path="$PATH"
 selection_environment_names=(
     HOME XDG_CONFIG_HOME AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
     AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_COPILOT_BIN
-    AAGENT_GEMINI_BIN AAGENT_AMP_BIN AAGENT_CURSOR_BIN
+    AAGENT_GEMINI_BIN AAGENT_AMP_BIN AAGENT_CURSOR_BIN AAGENT_DROID_BIN
     AAGENT_FAKE_RECORD_DIR AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROVIDER
     AAGENT_FAKE_ENV_PRESENCE AAGENT_FAKE_ENV_CAPTURE AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
     AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
@@ -147,7 +147,7 @@ selection_environment_names=(
     ANTHROPIC_FOUNDRY_API_KEY AWS_BEARER_TOKEN_BEDROCK ANTHROPIC_CUSTOM_HEADERS
     CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_MANTLE CLAUDE_CODE_USE_VERTEX
     CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_USE_ANTHROPIC_AWS
-    CODEX_API_KEY OPENAI_API_KEY AMP_API_KEY CURSOR_API_KEY \
+    CODEX_API_KEY OPENAI_API_KEY AMP_API_KEY CURSOR_API_KEY FACTORY_API_KEY \
     COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE COPILOT_PROVIDER_API_KEY \
     COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS COPILOT_MODEL \
     COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL \
@@ -164,8 +164,8 @@ home_dir="$test_dir/home"
 fake_bin="$test_dir/bin"
 record_dir="$test_dir/records"
 missing_dir="$test_dir/missing"
-mkdir -p "$home_dir/.config/aagent" "$home_dir/.gemini" "$fake_bin" "$record_dir"
-for provider in claude codex opencode copilot amp gemini agent; do
+mkdir -p "$home_dir/.config/aagent" "$home_dir/.gemini" "$home_dir/.factory" "$fake_bin" "$record_dir"
+for provider in claude codex opencode copilot amp gemini agent droid; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"
 done
@@ -179,7 +179,8 @@ clear_selection_case() {
     local name
     rm -rf "$record_dir"
     mkdir -p "$record_dir"
-    rm -f "$home_dir/.gemini/settings.json" "$home_dir/.config/aagent/config"
+    rm -f "$home_dir/.gemini/settings.json" "$home_dir/.factory/settings.json" \
+        "$home_dir/.factory/settings.local.json" "$home_dir/.config/aagent/config"
     for name in "${selection_environment_names[@]}"; do
         case "$name" in
             HOME|XDG_CONFIG_HOME|AAGENT_FAKE_RECORD_DIR) ;;
@@ -194,6 +195,7 @@ clear_selection_case() {
     export AAGENT_GEMINI_BIN="$missing_dir/gemini"
     export AAGENT_AMP_BIN="$missing_dir/amp"
     export AAGENT_CURSOR_BIN="$missing_dir/agent"
+    export AAGENT_DROID_BIN="$missing_dir/droid"
     export AAGENT_FAKE_VERSION_STDOUT='2026.07.23-e383d2b'
     export AAGENT_FAKE_HELP_STDOUT='Usage: agent Start the Cursor Agent --print status'
     export AAGENT_FAKE_RUN_STDOUT="provider-output"
@@ -301,6 +303,37 @@ run_wrapper "$test_dir/cursor-local-allowed" --allow-local true "say hello"
 assert_equals "$AAGENT_TEST_STATUS" 0 "allowed Cursor local route failed"
 find "$record_dir" -name 'agent.run.*.record' -print -quit | grep -q . || \
     fail "allowed Cursor local route did not run"
+
+clear_selection_case
+export AAGENT_DROID_BIN="$fake_bin/droid"
+export AAGENT_CODEX_BIN="$fake_bin/codex"
+export FACTORY_API_KEY='seeded-secret-token'
+export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro"},"requiresOpenaiAuth":true}}'
+run_wrapper "$test_dir/codex-beats-droid-account" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Codex versus Droid account scenario failed"
+find "$record_dir" -name 'codex.run.*.record' -print -quit | grep -q . || \
+    fail "ChatGPT Pro did not beat unknown-funding Factory account evidence"
+
+clear_selection_case
+export AAGENT_DROID_BIN="$fake_bin/droid"
+export AAGENT_COPILOT_BIN="$fake_bin/copilot"
+export FACTORY_API_KEY='seeded-secret-token'
+printf '%s' '{"model":"custom:remote-0","customModels":[{"baseUrl":"https://models.example.test/v1","apiKey":"seeded-secret-token"}]}' >"$home_dir/.factory/settings.json"
+run_wrapper "$test_dir/droid-byok" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Droid BYOK scenario failed"
+find "$record_dir" -name 'droid.run.*.record' -print -quit | grep -q . || \
+    fail "Droid BYOK did not beat an unknown-funding fallback"
+
+clear_selection_case
+export AAGENT_DROID_BIN="$fake_bin/droid"
+printf '%s' '{"model":"custom:local-0","customModels":[{"baseUrl":"http://localhost:11434/v1"}]}' >"$home_dir/.factory/settings.json"
+run_wrapper "$test_dir/droid-local-blocked" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" "$AAGENT_EXIT_UNAVAILABLE" "Droid local route bypassed allow-local"
+[[ ! -e "$record_dir/run.count" ]] || fail "blocked Droid local route received the prompt"
+run_wrapper "$test_dir/droid-local-allowed" --allow-local true "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "allowed Droid local route failed"
+find "$record_dir" -name 'droid.run.*.record' -print -quit | grep -q . || \
+    fail "allowed Droid local route did not run"
 
 clear_selection_case
 export AAGENT_COPILOT_BIN="$fake_bin/copilot"

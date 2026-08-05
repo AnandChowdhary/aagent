@@ -74,7 +74,7 @@ fake_bin="$test_dir/bin"
 record_dir="$test_dir/records"
 trap_bin="$test_dir/trap-bin"
 marker="$test_dir/credential-store-accessed"
-mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.gemini" "$fake_bin" "$record_dir" "$trap_bin"
+mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.gemini" "$HOME/.factory" "$fake_bin" "$record_dir" "$trap_bin"
 for provider in claude codex opencode agent; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"
@@ -92,6 +92,7 @@ done
 printf '%s\n' '$(api-key-helper)' 'seeded-secret-token' >"$HOME/.claude/.credentials.json"
 printf '%s\n' 'seeded-secret-token' >"$HOME/.codex/auth.json"
 printf '%s\n' 'seeded-secret-token' >"$HOME/.gemini/oauth_creds.json"
+printf '%s\n' 'seeded-secret-token' >"$HOME/.factory/credentials.json"
 printf '%s\n' '{"apiKeyHelper":"api-key-helper"}' >"$HOME/.claude/settings.json"
 
 clear_probe_case() {
@@ -110,7 +111,7 @@ clear_probe_case() {
         AAGENT_FAKE_OPENCODE_STATUS AAGENT_FAKE_OPENCODE_DELAY AAGENT_FAKE_OPENCODE_BYTES \
         AAGENT_FAKE_CURSOR_STATUS_STDOUT AAGENT_FAKE_CURSOR_STATUS_STDERR \
         AAGENT_FAKE_CURSOR_STATUS_STATUS AAGENT_FAKE_CURSOR_STATUS_DELAY \
-        AAGENT_FAKE_CURSOR_STATUS_BYTES CURSOR_API_KEY \
+        AAGENT_FAKE_CURSOR_STATUS_BYTES CURSOR_API_KEY FACTORY_API_KEY \
         CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_MANTLE CLAUDE_CODE_USE_VERTEX \
         CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_USE_ANTHROPIC_AWS \
         ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_BASE_URL \
@@ -361,6 +362,56 @@ cursor_json_hex="$(hex_string json)"
 grep -R -F "arg.0.hex=$cursor_status_hex" "$record_dir"/agent.probe.*.record >/dev/null || fail "Cursor status command was not recorded"
 grep -R -F "arg.1.hex=$cursor_format_hex" "$record_dir"/agent.probe.*.record >/dev/null || fail "Cursor status format flag differs"
 grep -R -F "arg.2.hex=$cursor_json_hex" "$record_dir"/agent.probe.*.record >/dev/null || fail "Cursor status JSON value differs"
+
+clear_probe_case
+rm -f "$HOME/.factory/settings.json" "$HOME/.factory/settings.local.json"
+aagent_probe_provider droid ""
+assert_probe droid unknown unknown 0 "Unknown" droid_no_passive_account_probe none skipped_no_passive
+
+clear_probe_case
+export FACTORY_API_KEY='seeded-secret-token'
+aagent_probe_provider droid ""
+assert_probe droid ready unknown 1 "Factory account" droid_factory_api_key environment environment_only
+assert_equals "$AAGENT_PROBE_SHADOWING_VARIABLES" "FACTORY_API_KEY" "Droid API key evidence differs"
+
+clear_probe_case
+export FACTORY_API_KEY='seeded-secret-token'
+printf '%s' '{"model":"custom:remote-0","customModels":[{"model":"remote","baseUrl":"https://models.example.test/v1","apiKey":"seeded-secret-token","email":"person@example.com","organization":"Secret Organization"}]}' >"$HOME/.factory/settings.json"
+aagent_probe_provider droid ""
+assert_probe droid ready payg_byok 1 "Factory BYOK model" droid_custom_model_byok settings success
+assert_equals "$AAGENT_PROBE_SHADOWING_VARIABLES" "FACTORY_API_KEY" "Droid BYOK shadow evidence differs"
+
+clear_probe_case
+printf '%s' '{"model":"custom:local-0","customModels":[{"model":"local","baseUrl":"http://127.0.0.1:11434/v1","apiKey":"seeded-secret-token"}]}' >"$HOME/.factory/settings.json"
+aagent_probe_provider droid ""
+assert_probe droid unknown local 0 "Local custom model" droid_custom_model_local settings success
+
+clear_probe_case
+export FACTORY_API_KEY='seeded-secret-token'
+printf '%s' '{"model":"claude-sonnet-managed"}' >"$HOME/.factory/settings.json"
+aagent_probe_provider droid ""
+assert_probe droid ready unknown 1 "Factory account" droid_factory_api_key environment environment_only
+
+clear_probe_case
+export FACTORY_API_KEY='seeded-secret-token'
+printf '%s' 'malformed seeded-secret-token person@example.com' >"$HOME/.factory/settings.json"
+aagent_probe_provider droid ""
+assert_probe droid ready unknown 1 "Factory account" droid_settings_unavailable settings schema_failure
+
+clear_probe_case
+head -c 70000 /dev/zero | tr '\0' x >"$HOME/.factory/settings.json"
+aagent_probe_provider droid ""
+assert_probe droid unknown unknown 0 "Factory account" droid_settings_unavailable settings truncated
+
+clear_probe_case
+project_dir="$test_dir/project"
+mkdir -p "$project_dir/.git" "$project_dir/.factory"
+printf '%s' '{"model":"custom:user-0","customModels":[{"baseUrl":"https://user.example.test/v1"}]}' >"$HOME/.factory/settings.json"
+printf '%s' '{"model":"custom:project-0","customModels":[{"baseUrl":"http://localhost:11434/v1"}]}' >"$project_dir/.factory/settings.local.json"
+AAGENT_CWD="$project_dir" aagent_probe_provider droid ""
+assert_probe droid unknown local 0 "Local custom model" droid_custom_model_local settings success
+unset AAGENT_CWD
+rm -f "$HOME/.factory/settings.json"
 
 clear_probe_case
 probe_count_before="$(<"$record_dir/probe.count")"

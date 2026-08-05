@@ -13,6 +13,7 @@ specification="$project_root/SPEC.md"
 ledger="$project_root/TODO.md"
 copilot_research="$project_root/docs/research/copilot-cli-2026-08-05.md"
 cursor_research="$project_root/docs/research/cursor-cli-2026-08-05.md"
+droid_research="$project_root/docs/research/factory-droid-2026-08-05.md"
 adapter_spec="$project_root/docs/spec/adapters.md"
 probe_spec="$project_root/docs/spec/probes.md"
 security_spec="$project_root/docs/spec/security.md"
@@ -43,6 +44,7 @@ specification_text="$(<"$specification")"
 ledger_text="$(<"$ledger")"
 copilot_research_text="$(<"$copilot_research")"
 cursor_research_text="$(<"$cursor_research")"
+droid_research_text="$(<"$droid_research")"
 adapter_spec_text="$(<"$adapter_spec")"
 probe_spec_text="$(<"$probe_spec")"
 security_spec_text="$(<"$security_spec")"
@@ -127,6 +129,36 @@ assert_contains "$security_spec_text" "\`--approve-mcps\`" \
     "security documentation omitted Cursor permission escalation flags"
 assert_contains "$ledger_text" "- [x] **P12A-04 Implement \`cursor\`.**" \
     "implementation ledger does not mark Cursor complete"
+
+droid_research_contract=(
+    'Status: Normative implementation input for P12A-05'
+    '0.188.0'
+    'sha512-EKDcuuxZ4mQPQJP2ApZo6yd8915pORGbpZABRV4vXKqM2Z9wk+GHnoOPiejv9hYYzNXwQP95NSemK2DsXxf+fw=='
+    'droid exec PROMPT'
+    'FACTORY_API_KEY'
+    'read-only autonomy'
+    'No unresolved interface question blocks P12A-05'
+)
+for evidence in "${droid_research_contract[@]}"; do
+    assert_contains "$droid_research_text" "$evidence" "Droid revalidation omitted $evidence"
+done
+
+droid_implementation_contract=(
+    "Factory Droid (\`droid\`)"
+    'droid exec PROMPT'
+    'AAGENT_DROID_BIN'
+    'FACTORY_API_KEY'
+    'customModels[INDEX].baseUrl'
+    'payg_byok'
+)
+for evidence in "${droid_implementation_contract[@]}"; do
+    assert_contains "$readme_text$adapter_spec_text$probe_spec_text" "$evidence" \
+        "Droid implementation documentation omitted $evidence"
+done
+assert_contains "$security_spec_text" "\`--skip-permissions-unsafe\`" \
+    "security documentation omitted Droid permission bypass"
+assert_contains "$ledger_text" "- [x] **P12A-05 Revalidate and implement Factory Droid.**" \
+    "implementation ledger does not mark Droid complete"
 
 help_contract=(
     'aagent [OPTIONS] [PROMPT...]'

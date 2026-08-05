@@ -64,7 +64,7 @@ record_dir="$test_dir/records"
 override_dir="$test_dir/override paths 🌍"
 mkdir -p "$fake_bin" "$record_dir" "$override_dir"
 
-for provider in codex claude copilot agent; do
+for provider in codex claude copilot agent droid; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"
 done
@@ -109,6 +109,7 @@ codex_index="$(adapter_index codex)"
 copilot_index="$(adapter_index copilot)"
 amp_index="$(adapter_index amp)"
 cursor_index="$(adapter_index cursor)"
+droid_index="$(adapter_index droid)"
 assert_equals "${AAGENT_ADAPTER_TIERS[$codex_index]}" "tier1" "Codex tier differs"
 assert_equals "${AAGENT_ADAPTER_COMMANDS[$codex_index]}" "codex exec PROMPT" "Codex command differs"
 assert_equals "${AAGENT_ADAPTER_TIERS[$copilot_index]}" "tier2" "Copilot tier differs"
@@ -122,6 +123,13 @@ assert_equals "${AAGENT_ADAPTER_EXECUTABLES[$cursor_index]}" "agent" "Cursor exe
 assert_equals "${AAGENT_ADAPTER_TIERS[$cursor_index]}" "tier2" "Cursor tier differs"
 assert_equals "${AAGENT_ADAPTER_COMMANDS[$cursor_index]}" "agent --print --output-format text PROMPT" "Cursor command differs"
 assert_equals "${AAGENT_ADAPTER_PROBES[$cursor_index]}" "status --format json" "Cursor probe metadata differs"
+assert_equals "${AAGENT_ADAPTER_TIERS[$droid_index]}" "tier2" "Droid tier differs"
+assert_equals "${AAGENT_ADAPTER_COMMANDS[$droid_index]}" "droid exec PROMPT" "Droid command differs"
+assert_equals "${AAGENT_ADAPTER_STDIN[$droid_index]}" "argument-and-stdin" "Droid input capability differs"
+assert_equals "${AAGENT_ADAPTER_STRUCTURED[$droid_index]}" "json,stream-json,stream-jsonrpc" "Droid structured-output capability differs"
+assert_equals "${AAGENT_ADAPTER_SESSIONS[$droid_index]}" "resume,fork" "Droid session capability differs"
+assert_contains "${AAGENT_ADAPTER_SAFETY[$droid_index]}" "Read-only autonomy by default" "Droid safety metadata differs"
+assert_equals "${AAGENT_ADAPTER_PROBES[$droid_index]}" "settings model + FACTORY_API_KEY presence" "Droid probe metadata differs"
 
 gemini() {
     printf 'this function must not be discovered\n'
@@ -150,6 +158,7 @@ assert_equals "$(status_for gemini)" "missing" "a shell function was accepted as
 assert_equals "$(status_for amp)" "missing" "Amp missing status differs"
 assert_equals "$(status_for copilot)" "installed" "installed Copilot status differs"
 assert_equals "$(status_for cursor)" "installed" "installed Cursor status differs"
+assert_equals "$(status_for droid)" "installed" "installed Droid status differs"
 assert_equals "$(path_for cursor)" "$fake_bin/agent" "Cursor path collides with aagent"
 assert_equals "$(reason_for cursor)" "Cursor CLI signature found" "Cursor signature reason differs"
 
@@ -168,6 +177,7 @@ assert_equals "$(reason_for cursor)" "Cursor CLI signature found via legacy curs
 export AAGENT_CODEX_BIN="$leading_executable"
 export AAGENT_CLAUDE_BIN="$aagent_script"
 export AAGENT_GEMINI_BIN="$override_executable"
+export AAGENT_DROID_BIN="$override_executable"
 export AAGENT_AMP_BIN="$invalid_directory"
 if (( broken_supported )); then
     export AAGENT_OPENCODE_BIN="$broken_link"
@@ -183,6 +193,8 @@ assert_equals "$(status_for claude)" "missing" "wrapper recursion was accepted"
 assert_equals "$(reason_for claude)" "resolved target is the aagent wrapper" "wrapper recursion reason differs"
 assert_equals "$(status_for gemini)" "installed" "Unicode/spaced override was rejected"
 assert_equals "$(path_for gemini)" "$override_executable" "Unicode/spaced override path differs"
+assert_equals "$(status_for droid)" "installed" "Droid override was rejected"
+assert_equals "$(path_for droid)" "$override_executable" "Droid override path differs"
 assert_equals "$(status_for amp)" "missing" "directory override was accepted"
 assert_equals "$(reason_for amp)" "invalid executable override: AAGENT_AMP_BIN" "invalid override reason differs"
 if [[ ! -x "$non_executable" ]]; then

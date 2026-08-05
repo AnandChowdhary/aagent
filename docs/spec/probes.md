@@ -67,6 +67,10 @@ provider's documented passive surface when no equivalent local signal exists:
   enrichment, so the shared timeout/output bounds apply and the response is
   discarded immediately after allowlisted parsing. `CURSOR_API_KEY` presence
   skips the status command.
+- Factory Droid runs no CLI account probe. It checks `FACTORY_API_KEY`
+  presence and reads only bounded, documented `model` and selected custom
+  `baseUrl` settings fields; `/status` and `/limits` remain interactive and
+  are never invoked automatically.
 
 ## Provider classifications
 
@@ -105,6 +109,12 @@ are `unknown`. An optional HTTP(S) endpoint is reduced to `vendor`, `local`, or
 global local opt-in, and custom funding stays unknown. Account, team, status,
 message, plan-like, and `userInfo` fields are ignored.
 
+Factory Droid treats `FACTORY_API_KEY` as low-confidence account readiness
+with funding `unknown`. A selected custom model's strict remote HTTP(S)
+endpoint is `payg_byok`; an exact loopback endpoint is `local` and requires
+the global opt-in. Browser login, Factory-managed model names, and account-key
+shape do not establish a plan, credit balance, or remaining allowance.
+
 ## Credential boundary
 
 The wrapper never opens provider token files, auth databases, keychains, OS
@@ -122,6 +132,11 @@ The Cursor status exception passes raw output only to the allowlist parser.
 The three authentication booleans and a fixed endpoint class are the only
 derived data retained; raw endpoint strings and every account or PII field are
 discarded.
+
+The Droid settings exception reads only `model` and the selected
+`customModels[INDEX].baseUrl` from the documented settings hierarchy. The
+document is size-bounded and discarded after endpoint classification. Raw
+`apiKey`, account, and arbitrary fields never enter the probe schema.
 
 Gemini's documented settings file is the only provider-owned file parsed by
 the wrapper. Unknown JSON fields are discarded and cannot enter the result.

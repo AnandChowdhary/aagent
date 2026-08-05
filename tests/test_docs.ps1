@@ -10,6 +10,7 @@ $specificationPath = Join-Path $projectRoot "SPEC.md"
 $ledgerPath = Join-Path $projectRoot "TODO.md"
 $copilotResearchPath = Join-Path $projectRoot "docs/research/copilot-cli-2026-08-05.md"
 $cursorResearchPath = Join-Path $projectRoot "docs/research/cursor-cli-2026-08-05.md"
+$droidResearchPath = Join-Path $projectRoot "docs/research/factory-droid-2026-08-05.md"
 $adapterSpecPath = Join-Path $projectRoot "docs/spec/adapters.md"
 $probeSpecPath = Join-Path $projectRoot "docs/spec/probes.md"
 $securitySpecPath = Join-Path $projectRoot "docs/spec/security.md"
@@ -27,6 +28,7 @@ $specification = [IO.File]::ReadAllText($specificationPath, $utf8)
 $ledger = [IO.File]::ReadAllText($ledgerPath, $utf8)
 $copilotResearch = [IO.File]::ReadAllText($copilotResearchPath, $utf8)
 $cursorResearch = [IO.File]::ReadAllText($cursorResearchPath, $utf8)
+$droidResearch = [IO.File]::ReadAllText($droidResearchPath, $utf8)
 $adapterSpec = [IO.File]::ReadAllText($adapterSpecPath, $utf8)
 $probeSpec = [IO.File]::ReadAllText($probeSpecPath, $utf8)
 $securitySpec = [IO.File]::ReadAllText($securitySpecPath, $utf8)
@@ -111,6 +113,36 @@ Assert-DocsContains $securitySpec '`--approve-mcps`' `
     "Security documentation omitted Cursor permission escalation flags"
 Assert-DocsContains $ledger '- [x] **P12A-04 Implement `cursor`.**' `
     "Implementation ledger does not mark Cursor complete"
+
+$droidResearchContract = @(
+    "Status: Normative implementation input for P12A-05",
+    "0.188.0",
+    "sha512-EKDcuuxZ4mQPQJP2ApZo6yd8915pORGbpZABRV4vXKqM2Z9wk+GHnoOPiejv9hYYzNXwQP95NSemK2DsXxf+fw==",
+    "droid exec PROMPT",
+    "FACTORY_API_KEY",
+    "read-only autonomy",
+    "No unresolved interface question blocks P12A-05"
+)
+foreach ($evidence in $droidResearchContract) {
+    Assert-DocsContains $droidResearch $evidence "Droid revalidation omitted $evidence"
+}
+
+$droidImplementationContract = @(
+    'Factory Droid (`droid`)',
+    'droid exec PROMPT',
+    'AAGENT_DROID_BIN',
+    'FACTORY_API_KEY',
+    'customModels[INDEX].baseUrl',
+    'payg_byok'
+)
+foreach ($evidence in $droidImplementationContract) {
+    Assert-DocsContains ($readme + $adapterSpec + $probeSpec) $evidence `
+        "Droid implementation documentation omitted $evidence"
+}
+Assert-DocsContains $securitySpec '`--skip-permissions-unsafe`' `
+    "Security documentation omitted Droid permission bypass"
+Assert-DocsContains $ledger '- [x] **P12A-05 Revalidate and implement Factory Droid.**' `
+    "Implementation ledger does not mark Droid complete"
 
 $helpContract = @(
     "aagent [OPTIONS] [PROMPT...]",

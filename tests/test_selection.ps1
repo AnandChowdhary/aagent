@@ -158,7 +158,7 @@ $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-selection-" + [guid]::N
 $selectionEnvironmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
     "AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN",
-    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN", "AAGENT_CURSOR_BIN",
+    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN", "AAGENT_CURSOR_BIN", "AAGENT_DROID_BIN",
     "AAGENT_FAKE_RECORD_DIR", "AAGENT_FAKE_INVOCATION_KIND", "AAGENT_FAKE_PROVIDER",
     "AAGENT_FAKE_ENV_PRESENCE", "AAGENT_FAKE_ENV_CAPTURE", "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR",
     "AAGENT_FAKE_PROBE_STATUS", "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES",
@@ -175,7 +175,7 @@ $selectionEnvironmentNames = @(
     "ANTHROPIC_FOUNDRY_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "ANTHROPIC_CUSTOM_HEADERS",
     "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
-    "CODEX_API_KEY", "OPENAI_API_KEY", "AMP_API_KEY", "CURSOR_API_KEY",
+    "CODEX_API_KEY", "OPENAI_API_KEY", "AMP_API_KEY", "CURSOR_API_KEY", "FACTORY_API_KEY",
     "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_API_KEY",
     "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL",
     "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
@@ -195,11 +195,12 @@ try {
     $missingDir = Join-Path $testDir "missing"
     foreach ($directory in @(
         $homeDir, $configDir, $appDataDir, $fakeBin, $recordDir,
-        (Join-Path $homeDir ".gemini")
+        (Join-Path $homeDir ".gemini"),
+        (Join-Path $homeDir ".factory")
     )) {
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
-    foreach ($provider in @("claude", "codex", "opencode", "copilot", "amp", "gemini", "agent")) {
+    foreach ($provider in @("claude", "codex", "opencode", "copilot", "amp", "gemini", "agent", "droid")) {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }
     $env:HOME = $homeDir
@@ -211,6 +212,8 @@ try {
         Remove-Item -LiteralPath $recordDir -Recurse -Force -ErrorAction SilentlyContinue
         [IO.Directory]::CreateDirectory($recordDir) | Out-Null
         Remove-Item -LiteralPath (Join-Path $homeDir ".gemini/settings.json") -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $homeDir ".factory/settings.json") -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $homeDir ".factory/settings.local.json") -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath (Join-Path $configDir "aagent/config") -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath (Join-Path $appDataDir "aagent/config") -Force -ErrorAction SilentlyContinue
         foreach ($name in $selectionEnvironmentNames) {
@@ -225,6 +228,7 @@ try {
         $env:AAGENT_GEMINI_BIN = Join-Path $missingDir "gemini"
         $env:AAGENT_AMP_BIN = Join-Path $missingDir "amp"
         $env:AAGENT_CURSOR_BIN = Join-Path $missingDir "agent"
+        $env:AAGENT_DROID_BIN = Join-Path $missingDir "droid"
         $env:AAGENT_FAKE_VERSION_STDOUT = "2026.07.23-e383d2b"
         $env:AAGENT_FAKE_HELP_STDOUT = "Usage: agent Start the Cursor Agent --print status"
         $env:AAGENT_FAKE_RUN_STDOUT = "provider-output"
@@ -332,6 +336,50 @@ try {
     Assert-SelectionEqual $processResult.Status 0 "Allowed Cursor local route failed"
     if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "agent.run.*.record")) {
         throw "Allowed Cursor local route did not run"
+    }
+
+    Clear-SelectionCase
+    $env:AAGENT_DROID_BIN = Join-Path $fakeBin "droid.ps1"
+    $env:AAGENT_CODEX_BIN = Join-Path $fakeBin "codex.ps1"
+    $env:FACTORY_API_KEY = "seeded-secret-token"
+    $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro"},"requiresOpenaiAuth":true}}'
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Codex versus Droid account scenario failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "codex.run.*.record")) {
+        throw "ChatGPT Pro did not beat unknown-funding Factory account evidence"
+    }
+
+    Clear-SelectionCase
+    $env:AAGENT_DROID_BIN = Join-Path $fakeBin "droid.ps1"
+    $env:AAGENT_COPILOT_BIN = Join-Path $fakeBin "copilot.ps1"
+    $env:FACTORY_API_KEY = "seeded-secret-token"
+    [IO.File]::WriteAllText(
+        (Join-Path $homeDir ".factory/settings.json"),
+        '{"model":"custom:remote-0","customModels":[{"baseUrl":"https://models.example.test/v1","apiKey":"seeded-secret-token"}]}',
+        $utf8
+    )
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Droid BYOK scenario failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "droid.run.*.record")) {
+        throw "Droid BYOK did not beat an unknown-funding fallback"
+    }
+
+    Clear-SelectionCase
+    $env:AAGENT_DROID_BIN = Join-Path $fakeBin "droid.ps1"
+    [IO.File]::WriteAllText(
+        (Join-Path $homeDir ".factory/settings.json"),
+        '{"model":"custom:local-0","customModels":[{"baseUrl":"http://localhost:11434/v1"}]}',
+        $utf8
+    )
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status $AagentExitUnavailable "Droid local route bypassed allow-local"
+    if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) {
+        throw "Blocked Droid local route received the prompt"
+    }
+    $processResult = Invoke-SelectionProcess @("--allow-local", "true", "say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Allowed Droid local route failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "droid.run.*.record")) {
+        throw "Allowed Droid local route did not run"
     }
 
     Clear-SelectionCase
