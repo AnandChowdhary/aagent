@@ -10,7 +10,7 @@ readonly \
     AAGENT_EXIT_UNAVAILABLE=69 \
     AAGENT_EXIT_SOFTWARE=70 \
     AAGENT_EXIT_CONFIG=78
-readonly AAGENT_VERSION="0.1.0"
+readonly AAGENT_VERSION="0.1.1"
 readonly AAGENT_POPULARITY_SNAPSHOT="2026-08-04"
 
 aagent_reset_registry() {
@@ -1061,7 +1061,7 @@ aagent_probe_codex() {
     local account_lower=""
 
     aagent_reset_probe_result codex
-    protocol_input=$'{"method":"initialize","id":0,"params":{"clientInfo":{"name":"aagent","title":"aagent","version":"0.1.0"}}}\n{"method":"initialized","params":{}}\n{"method":"account/read","id":1,"params":{"refreshToken":false}}\n'
+    protocol_input=$'{"method":"initialize","id":0,"params":{"clientInfo":{"name":"aagent","title":"aagent","version":"0.1.1"}}}\n{"method":"initialized","params":{}}\n{"method":"account/read","id":1,"params":{"refreshToken":false}}\n'
     aagent_run_probe_process "$executable" "$protocol_input" stdout 0.5 app-server
     if [[ "$AAGENT_PROBE_PROCESS_STATUS" != "success" ]]; then
         aagent_probe_codex_fallback "$executable" "$AAGENT_PROBE_PROCESS_STATUS"

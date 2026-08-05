@@ -98,7 +98,7 @@ export AAGENT_CODEX_BIN="$fake_bin/codex"
 run_wrapper "$test_dir/doctor" doctor codex
 assert_equals "$AAGENT_TEST_STATUS" 0 "provider-scoped doctor failed"
 doctor_output="$(<"$test_dir/doctor.stdout")"
-assert_contains "$doctor_output" "wrapper: aagent 0.1.0" "doctor omitted wrapper information"
+assert_contains "$doctor_output" "wrapper: aagent 0.1.1" "doctor omitted wrapper information"
 assert_contains "$doctor_output" "platform:" "doctor omitted platform information"
 assert_contains "$doctor_output" "configuration: not found" "doctor omitted configuration status"
 assert_contains "$doctor_output" "selected provider: none" "scoped doctor unexpectedly ran global selection"

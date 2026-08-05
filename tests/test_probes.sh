@@ -218,7 +218,7 @@ export AAGENT_FAKE_CODEX_LOGIN_STDERR='Not logged in'
 aagent_probe_provider codex "$fake_bin/codex"
 assert_probe codex unusable unknown 2 "Not signed in" codex_not_logged_in login_status fallback_success
 
-codex_input=$'{"method":"initialize","id":0,"params":{"clientInfo":{"name":"aagent","title":"aagent","version":"0.1.0"}}}\n{"method":"initialized","params":{}}\n{"method":"account/read","id":1,"params":{"refreshToken":false}}\n'
+codex_input=$'{"method":"initialize","id":0,"params":{"clientInfo":{"name":"aagent","title":"aagent","version":"0.1.1"}}}\n{"method":"initialized","params":{}}\n{"method":"account/read","id":1,"params":{"refreshToken":false}}\n'
 codex_input_hex="$(hex_string "$codex_input")"
 grep -Fq "stdin.hex=$codex_input_hex" "$record_dir"/codex.probe.*.record || \
     fail "Codex app-server handshake or refreshToken:false request differs"

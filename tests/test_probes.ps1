@@ -261,7 +261,7 @@ try {
         codex_not_logged_in login_status fallback_success
 
     $codexInput = @(
-        '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"aagent","title":"aagent","version":"0.1.0"}}}'
+        '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"aagent","title":"aagent","version":"0.1.1"}}}'
         '{"method":"initialized","params":{}}'
         '{"method":"account/read","id":1,"params":{"refreshToken":false}}'
         ""
