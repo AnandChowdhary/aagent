@@ -762,9 +762,12 @@ Deliverable: installable, documented MVP with passing cross-platform CI
   Evidence: `tests/test_docs.sh` and `tests/test_docs.ps1` enforce cross-runner
   help parity, public-surface coverage, executable examples, and local links.
 
-- [ ] **P11-10 Run the full local release gate.**
+- [x] **P11-10 Run the full local release gate.**
   Execute syntax checks, Bash tests, PowerShell tests when available, Markdown
   link checks, `git diff --check`, and a clean-room install smoke test.
+
+  Evidence: the clean default `scripts/release-gate.sh` completed locally with
+  Bash and PowerShell 7, including both clean-room installer paths.
 
 - [ ] **P11-11 Run the full GitHub Actions gate.**
   Require every matrix job at the exact release commit; rerun only to diagnose
