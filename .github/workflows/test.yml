@@ -36,3 +36,15 @@ jobs:
       - name: Run PowerShell suite, including install, introspection, and security contracts
         shell: pwsh
         run: ./tests/test_aagent.ps1
+
+  release-gate:
+    name: Release gate (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Run the reproducible local release gate
+        shell: bash
+        run: bash ./scripts/release-gate.sh

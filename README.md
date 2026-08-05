@@ -302,6 +302,7 @@ Implementation order and verification evidence live in [TODO.md](TODO.md).
 ```bash
 bash ./tests/test_aagent.sh
 pwsh -NoProfile -File ./tests/test_aagent.ps1
+bash ./scripts/release-gate.sh
 ```
 
 Tests use isolated homes, controlled `PATH` values, and credential-free fake
@@ -309,6 +310,12 @@ providers. They cover parsing, discovery, process fidelity, all Tier 1 command
 shapes, passive probes, selection, child-only auth policy, introspection,
 security, installation, and compatibility drift without invoking locally
 installed coding agents or paid prompts.
+
+The release gate requires a clean worktree, runs both aggregate suites when
+PowerShell is installed, validates every shell script and local Markdown link,
+and performs isolated Bash and PowerShell installations. Use `--allow-dirty`
+only while developing the gate itself; release evidence always uses the clean
+default.
 
 ## License
 
