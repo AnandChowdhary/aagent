@@ -14,6 +14,7 @@ ledger="$project_root/TODO.md"
 copilot_research="$project_root/docs/research/copilot-cli-2026-08-05.md"
 cursor_research="$project_root/docs/research/cursor-cli-2026-08-05.md"
 droid_research="$project_root/docs/research/factory-droid-2026-08-05.md"
+goose_research="$project_root/docs/research/goose-cli-2026-08-05.md"
 adapter_spec="$project_root/docs/spec/adapters.md"
 probe_spec="$project_root/docs/spec/probes.md"
 security_spec="$project_root/docs/spec/security.md"
@@ -45,6 +46,7 @@ ledger_text="$(<"$ledger")"
 copilot_research_text="$(<"$copilot_research")"
 cursor_research_text="$(<"$cursor_research")"
 droid_research_text="$(<"$droid_research")"
+goose_research_text="$(<"$goose_research")"
 adapter_spec_text="$(<"$adapter_spec")"
 probe_spec_text="$(<"$probe_spec")"
 security_spec_text="$(<"$security_spec")"
@@ -159,6 +161,35 @@ assert_contains "$security_spec_text" "\`--skip-permissions-unsafe\`" \
     "security documentation omitted Droid permission bypass"
 assert_contains "$ledger_text" "- [x] **P12A-05 Revalidate and implement Factory Droid.**" \
     "implementation ledger does not mark Droid complete"
+
+goose_research_contract=(
+    'Status: Normative implementation input for P12B-01'
+    "Goose \`1.45.0\`"
+    '90c50d653d7fd978ec5d436b548eca8613dc2d26d028b486b7c52271267ec500'
+    'goose run --text PROMPT'
+    'active_provider'
+    'goose info --check'
+    'No unresolved interface question blocks P12B-01'
+)
+for evidence in "${goose_research_contract[@]}"; do
+    assert_contains "$goose_research_text" "$evidence" "Goose revalidation omitted $evidence"
+done
+
+goose_implementation_contract=(
+    "Goose (\`goose\`)"
+    'goose run --text PROMPT'
+    'goose run --instructions -'
+    'AAGENT_GOOSE_BIN'
+    'GOOSE_PROVIDER'
+    'GOOSE_MODE'
+    'secrets.yaml'
+)
+for evidence in "${goose_implementation_contract[@]}"; do
+    assert_contains "$readme_text$adapter_spec_text$probe_spec_text$security_spec_text" "$evidence" \
+        "Goose implementation documentation omitted $evidence"
+done
+assert_contains "$ledger_text" "- [x] **P12B-01 Revalidate and implement Goose.**" \
+    "implementation ledger does not mark Goose complete"
 
 help_contract=(
     'aagent [OPTIONS] [PROMPT...]'

@@ -71,6 +71,10 @@ provider's documented passive surface when no equivalent local signal exists:
   presence and reads only bounded, documented `model` and selected custom
   `baseUrl` settings fields; `/status` and `/limits` remain interactive and
   are never invoked automatically.
+- Goose runs no CLI command. It reads only a bounded top-level selected
+  provider ID and narrowly allowlisted custom-provider route fields, then
+  inherits an already-defined passive provider probe when applicable.
+  `goose info --check` is never invoked because it sends a model request.
 
 ## Provider classifications
 
@@ -115,6 +119,16 @@ endpoint is `payg_byok`; an exact loopback endpoint is `local` and requires
 the global opt-in. Browser login, Factory-managed model names, and account-key
 shape do not establish a plan, credit balance, or remaining allowance.
 
+Goose uses `GOOSE_PROVIDER` before bounded platform configuration containing
+top-level `active_provider`. Native `claude-acp`/`claude-code`,
+`codex-acp`/`codex`, `gemini-cli`, `cursor-agent`, `copilot-acp`, and `amp-acp`
+routes inherit the corresponding safe probe and child authentication policy.
+Known Goose OAuth/account routes are `included_account`; direct API routes are
+`payg_byok`; exact loopback routes are opt-in `local`; remote local-provider
+overrides and unknown provider IDs remain funding-unknown. Custom-provider
+JSON permits only `base_url`, `api_key_env`, and `requires_auth`; credential
+values and Goose secrets are never opened.
+
 ## Credential boundary
 
 The wrapper never opens provider token files, auth databases, keychains, OS
@@ -132,6 +146,11 @@ The Cursor status exception passes raw output only to the allowlist parser.
 The three authentication booleans and a fixed endpoint class are the only
 derived data retained; raw endpoint strings and every account or PII field are
 discarded.
+
+The Goose configuration exception retains only an allowlisted provider ID and
+a fixed local, authenticated-remote, or unknown endpoint class. It never opens
+the OS keyring or `secrets.yaml`, and it checks a named custom-provider
+credential environment variable only for presence.
 
 The Droid settings exception reads only `model` and the selected
 `customModels[INDEX].baseUrl` from the documented settings hierarchy. The

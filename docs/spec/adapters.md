@@ -169,11 +169,34 @@ candidate.
   API keys, browser tokens, plan tier, credits, and quota remain unread.
 - Revalidation: [2026-08-05 Factory Droid](../research/factory-droid-2026-08-05.md).
 
+### Goose (`goose`)
+
+- Invocation: prompt-only uses `goose run --text PROMPT`; stdin-only and
+  prompt-plus-stdin use `goose run --instructions -`.
+- Model: `--model ID`.
+- Input: prompt-plus-stdin is combined using the CLI contract separator and
+  passed through stdin because Goose accepts only one instructions source.
+- Native output: text by default; JSON and stream JSON remain native
+  capability metadata.
+- Sessions: native name, resume, ID, and no-session controls remain metadata
+  or explicit post-`--` options.
+- Permissions: upstream currently defaults `GOOSE_MODE` to `auto`. `aagent`
+  does not set the variable, generate an approval/mode option, alter extensions,
+  or replace the user's installed Goose policy.
+- Authentication: a bounded top-level `active_provider` or legacy
+  `GOOSE_PROVIDER` identifies the route. Native CLI and ACP routes inherit the
+  corresponding passive provider probe; known OAuth/account providers are at
+  most `included_account`; loopback providers require local opt-in; API and
+  custom routes are classified conservatively.
+- Privacy: Goose keyring data, `secrets.yaml`, arbitrary configuration fields,
+  and custom-provider credential values are never read. `goose info --check`
+  is prohibited because it sends a real model request.
+- Revalidation: [2026-08-05 Goose CLI](../research/goose-cli-2026-08-05.md).
+
 ## Tier 2: planned adapters
 
 | ID | Executable and one-shot form | Structured output | Important compatibility note |
 | --- | --- | --- | --- |
-| `goose` | `goose run --text PROMPT` | JSON and stream JSON | Headless automation commonly uses `GOOSE_MODE=auto`; provider and model are separately selectable. |
 | `qwen` | `qwen --prompt PROMPT` | JSON and stream JSON | Offers plan/default/auto-edit/auto/yolo approval modes and explicit run budgets. |
 | `kimi` | `kimi --prompt PROMPT` | stream JSON | Print mode uses automatic permission handling and cannot be combined with its interactive `--auto`, `--plan`, or `--yolo` flags. |
 | `cline` | `cline PROMPT` | NDJSON with `--json` | Headless operation documents automatic approval behavior; do not promise a read-only default. |

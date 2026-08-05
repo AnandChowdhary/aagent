@@ -70,9 +70,11 @@ aagent_initialize_registry() {
     aagent_register_adapter "cline" "Cline CLI" "cline" "AAGENT_CLINE_BIN" "planned" \
         "cline PROMPT" "argument" "--model" "ndjson" "unknown" \
         "Headless use documents automatic approval behavior." "unknown" "6" "6"
-    aagent_register_adapter "goose" "Goose" "goose" "AAGENT_GOOSE_BIN" "planned" \
-        "goose run --text PROMPT" "argument" "provider-native" "json,stream-json" "unknown" \
-        "Headless automation may use GOOSE_MODE=auto only by user choice." "provider metadata" "7" "7"
+    aagent_register_adapter "goose" "Goose" "goose" "AAGENT_GOOSE_BIN" "tier2" \
+        "goose run --text PROMPT" "argument-and-stdin" "--model" "json,stream-json" \
+        "resume,name,no-session" \
+        "Native GOOSE_MODE remains user-controlled; aagent never enables auto approval." \
+        "selected provider config; never info --check" "7" "7"
     aagent_register_adapter "aider" "Aider" "aider" "AAGENT_AIDER_BIN" "planned" \
         "aider --message PROMPT" "argument" "--model" "none" "unknown" \
         "Automatically commits changes by default." "model metadata" "8" "8"
@@ -674,6 +676,7 @@ aagent_reset_probe_result() {
     AAGENT_PROBE_SOURCE="none"
     AAGENT_PROBE_STATUS="not_run"
     AAGENT_PROBE_CAPTURE=""
+    AAGENT_PROBE_UNDERLYING_PROVIDER=""
 }
 
 aagent_set_probe_result() {
@@ -1537,6 +1540,330 @@ aagent_probe_cursor() {
     fi
 }
 
+aagent_resolve_goose_config_path() {
+    local path_root="${GOOSE_PATH_ROOT-}"
+    AAGENT_GOOSE_CONFIG_PATH=""
+    AAGENT_GOOSE_CONFIG_DIR=""
+    AAGENT_GOOSE_PATH_STATUS="success"
+
+    if [[ -n "$path_root" ]]; then
+        if [[ "$path_root" != /* && ! "$path_root" =~ ^[A-Za-z]:[\\/] ]]; then
+            AAGENT_GOOSE_PATH_STATUS="invalid_configuration"
+            return 0
+        fi
+        AAGENT_GOOSE_CONFIG_DIR="${path_root%/}/config"
+    elif [[ "${OSTYPE-}" == darwin* ]]; then
+        [[ -n "${HOME-}" ]] || return 0
+        AAGENT_GOOSE_CONFIG_DIR="$HOME/Library/Application Support/Block/goose"
+    elif [[ -n "${XDG_CONFIG_HOME-}" ]]; then
+        AAGENT_GOOSE_CONFIG_DIR="${XDG_CONFIG_HOME%/}/goose"
+    elif [[ -n "${HOME-}" ]]; then
+        AAGENT_GOOSE_CONFIG_DIR="$HOME/.config/goose"
+    fi
+    if [[ -n "$AAGENT_GOOSE_CONFIG_DIR" ]]; then
+        AAGENT_GOOSE_CONFIG_PATH="$AAGENT_GOOSE_CONFIG_DIR/config.yaml"
+    fi
+}
+
+aagent_parse_goose_yaml_scalar() {
+    local value
+    value="$(aagent_trim_config_whitespace "$1")"
+    AAGENT_GOOSE_SCALAR=""
+    case "$value" in
+        \"*\")
+            [[ "$value" =~ ^\"([A-Za-z0-9._-]+)\"([[:space:]]*#.*)?$ ]] || return 1
+            AAGENT_GOOSE_SCALAR="${BASH_REMATCH[1]}"
+            ;;
+        \'*\')
+            [[ "$value" =~ ^\'([A-Za-z0-9._-]+)\'([[:space:]]*#.*)?$ ]] || return 1
+            AAGENT_GOOSE_SCALAR="${BASH_REMATCH[1]}"
+            ;;
+        *)
+            value="${value%%[[:space:]]#*}"
+            value="$(aagent_trim_config_whitespace "$value")"
+            [[ "$value" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+            AAGENT_GOOSE_SCALAR="$value"
+            ;;
+    esac
+}
+
+aagent_resolve_goose_selected_provider() {
+    local line=""
+    local value=""
+    local active_provider=""
+    local legacy_provider=""
+    local active_seen=0
+    local legacy_seen=0
+
+    AAGENT_GOOSE_SELECTED_PROVIDER=""
+    AAGENT_GOOSE_PROVIDER_SOURCE="none"
+    AAGENT_GOOSE_PROVIDER_STATUS="not_found"
+    aagent_resolve_goose_config_path
+    if [[ "$AAGENT_GOOSE_PATH_STATUS" != "success" ]]; then
+        AAGENT_GOOSE_PROVIDER_STATUS="$AAGENT_GOOSE_PATH_STATUS"
+        return 0
+    fi
+
+    if aagent_environment_has GOOSE_PROVIDER; then
+        value="${GOOSE_PROVIDER-}"
+        if [[ -n "$value" && "$value" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            AAGENT_GOOSE_SELECTED_PROVIDER="$value"
+            AAGENT_GOOSE_PROVIDER_SOURCE="environment"
+            AAGENT_GOOSE_PROVIDER_STATUS="environment_only"
+        else
+            AAGENT_GOOSE_PROVIDER_STATUS="invalid_configuration"
+        fi
+        return 0
+    fi
+
+    [[ -n "$AAGENT_GOOSE_CONFIG_PATH" ]] || return 0
+    aagent_read_bounded_file "$AAGENT_GOOSE_CONFIG_PATH"
+    AAGENT_GOOSE_PROVIDER_STATUS="$AAGENT_PROBE_FILE_STATUS"
+    [[ "$AAGENT_PROBE_FILE_STATUS" == "success" ]] || {
+        AAGENT_PROBE_CAPTURE=""
+        return 0
+    }
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        (( ${#line} <= 4096 )) || {
+            AAGENT_GOOSE_PROVIDER_STATUS="schema_failure"
+            break
+        }
+        [[ "$line" != [[:space:]]* ]] || continue
+        case "$line" in
+            active_provider:*)
+                (( active_seen == 0 )) || { AAGENT_GOOSE_PROVIDER_STATUS="schema_failure"; break; }
+                active_seen=1
+                value="${line#active_provider:}"
+                if ! aagent_parse_goose_yaml_scalar "$value"; then
+                    AAGENT_GOOSE_PROVIDER_STATUS="schema_failure"
+                    break
+                fi
+                active_provider="$AAGENT_GOOSE_SCALAR"
+                ;;
+            GOOSE_PROVIDER:*)
+                (( legacy_seen == 0 )) || { AAGENT_GOOSE_PROVIDER_STATUS="schema_failure"; break; }
+                legacy_seen=1
+                value="${line#GOOSE_PROVIDER:}"
+                if ! aagent_parse_goose_yaml_scalar "$value"; then
+                    AAGENT_GOOSE_PROVIDER_STATUS="schema_failure"
+                    break
+                fi
+                legacy_provider="$AAGENT_GOOSE_SCALAR"
+                ;;
+        esac
+    done <<<"$AAGENT_PROBE_CAPTURE"
+    AAGENT_PROBE_CAPTURE=""
+    [[ "$AAGENT_GOOSE_PROVIDER_STATUS" == "success" ]] || return 0
+
+    if [[ -n "$active_provider" ]]; then
+        AAGENT_GOOSE_SELECTED_PROVIDER="$active_provider"
+    elif [[ -n "$legacy_provider" ]]; then
+        AAGENT_GOOSE_SELECTED_PROVIDER="$legacy_provider"
+    else
+        AAGENT_GOOSE_PROVIDER_STATUS="not_found"
+        return 0
+    fi
+    AAGENT_GOOSE_PROVIDER_SOURCE="settings"
+}
+
+aagent_resolve_goose_underlying_executable() {
+    local executable="$1"
+    local override_name="$2"
+    local goose_command_name="${3-}"
+    local requested="$executable"
+    AAGENT_GOOSE_UNDERLYING_EXECUTABLE=""
+    if [[ -n "$goose_command_name" && -n "${!goose_command_name-}" ]]; then
+        requested="${!goose_command_name}"
+    elif [[ -n "${!override_name-}" ]]; then
+        requested="${!override_name}"
+    fi
+    if [[ "$requested" == */* ]]; then
+        [[ -f "$requested" && -x "$requested" ]] && AAGENT_GOOSE_UNDERLYING_EXECUTABLE="$requested"
+    else
+        AAGENT_GOOSE_UNDERLYING_EXECUTABLE="$(type -P "$requested" 2>/dev/null || true)"
+    fi
+}
+
+aagent_inherit_goose_probe() {
+    local provider="$1"
+    local executable="$2"
+    local override_name="$3"
+    local goose_command_name="${4-}"
+    aagent_resolve_goose_underlying_executable "$executable" "$override_name" "$goose_command_name"
+    [[ -n "$AAGENT_GOOSE_UNDERLYING_EXECUTABLE" ]] || return 1
+    aagent_probe_provider "$provider" "$AAGENT_GOOSE_UNDERLYING_EXECUTABLE"
+    AAGENT_PROBE_PROVIDER="goose"
+    AAGENT_PROBE_UNDERLYING_PROVIDER="$provider"
+    AAGENT_PROBE_SOURCE="selected_provider/$AAGENT_PROBE_SOURCE"
+    return 0
+}
+
+aagent_probe_goose_custom_provider() {
+    local provider="$1"
+    local path="$AAGENT_GOOSE_CONFIG_DIR/custom_providers/$provider.json"
+    local base_path api_key_path requires_path
+    local base_url="" api_key_env="" requires_auth=""
+    local base_type="missing" api_key_type="missing" requires_type="missing"
+    local shadowing=""
+
+    [[ "$provider" =~ ^custom_[A-Za-z0-9_.-]+$ ]] || return 1
+    aagent_read_bounded_file "$path"
+    if [[ "$AAGENT_PROBE_FILE_STATUS" != "success" ]]; then
+        AAGENT_PROBE_CAPTURE=""
+        aagent_set_probe_result ready unknown 2 "Custom Goose provider" \
+            goose_custom_provider_unresolved selected_provider "$AAGENT_PROBE_FILE_STATUS"
+        return 0
+    fi
+    base_path="$(aagent_json_make_path base_url)"
+    api_key_path="$(aagent_json_make_path api_key_env)"
+    requires_path="$(aagent_json_make_path requires_auth)"
+    if ! aagent_json_parse_document "$AAGENT_PROBE_CAPTURE" "$base_path" "$api_key_path" "$requires_path"; then
+        AAGENT_PROBE_CAPTURE=""
+        aagent_set_probe_result unknown unknown 0 "Unknown" goose_custom_provider_schema_failure \
+            selected_provider schema_failure
+        return 0
+    fi
+    AAGENT_PROBE_CAPTURE=""
+    if aagent_json_get "$base_path"; then base_url="$AAGENT_JSON_VALUE"; base_type="$AAGENT_JSON_TYPE"; fi
+    if aagent_json_get "$api_key_path"; then api_key_env="$AAGENT_JSON_VALUE"; api_key_type="$AAGENT_JSON_TYPE"; fi
+    if aagent_json_get "$requires_path"; then requires_auth="$AAGENT_JSON_VALUE"; requires_type="$AAGENT_JSON_TYPE"; fi
+    aagent_json_reset
+    if [[ "$base_type" != "string" || "$requires_type" != "bool" || \
+        ( "$api_key_type" != "missing" && "$api_key_type" != "string" ) || \
+        ( -n "$api_key_env" && ! "$api_key_env" =~ ^[A-Z][A-Z0-9_]*$ ) ]]; then
+        aagent_set_probe_result unknown unknown 0 "Unknown" goose_custom_provider_schema_failure \
+            selected_provider schema_failure
+        return 0
+    fi
+    [[ -n "$api_key_env" ]] && aagent_environment_has "$api_key_env" && shadowing="$api_key_env"
+    aagent_classify_cursor_endpoint "$base_url"
+    case "$AAGENT_CURSOR_ENDPOINT_CLASS" in
+        local)
+            aagent_set_probe_result ready local 2 "Local custom Goose provider" \
+                goose_custom_provider_local selected_provider success "$shadowing"
+            ;;
+        custom|vendor)
+            if [[ "$requires_auth" == "true" ]]; then
+                aagent_set_probe_result ready payg_byok 2 "Goose BYOK provider" \
+                    goose_custom_provider_byok selected_provider success "$shadowing"
+            else
+                aagent_set_probe_result ready unknown 2 "Custom Goose provider" \
+                    goose_custom_provider_remote selected_provider success "$shadowing"
+            fi
+            ;;
+        *)
+            aagent_set_probe_result unknown unknown 0 "Unknown" goose_custom_provider_endpoint_invalid \
+                selected_provider invalid_configuration "$shadowing"
+            ;;
+    esac
+}
+
+aagent_probe_goose() {
+    local provider=""
+    local endpoint=""
+    local source=""
+    local status=""
+
+    aagent_reset_probe_result goose
+    aagent_resolve_goose_selected_provider
+    provider="$AAGENT_GOOSE_SELECTED_PROVIDER"
+    source="$AAGENT_GOOSE_PROVIDER_SOURCE"
+    status="$AAGENT_GOOSE_PROVIDER_STATUS"
+    case "$status" in
+        read_error|truncated|schema_failure|invalid_configuration)
+            aagent_set_probe_result unknown unknown 0 "Unknown" goose_provider_config_unavailable \
+                selected_provider "$status"
+            return 0
+            ;;
+    esac
+    if [[ -z "$provider" ]]; then
+        aagent_set_probe_result unknown unknown 0 "Unknown" goose_provider_not_selected \
+            none skipped_no_passive
+        return 0
+    fi
+
+    case "$provider" in
+        claude-acp|claude-code)
+            aagent_inherit_goose_probe claude claude AAGENT_CLAUDE_BIN CLAUDE_CODE_COMMAND && return 0
+            ;;
+        codex-acp|codex)
+            aagent_inherit_goose_probe codex codex AAGENT_CODEX_BIN CODEX_COMMAND && return 0
+            ;;
+        gemini-cli)
+            aagent_probe_gemini
+            AAGENT_PROBE_PROVIDER="goose"
+            AAGENT_PROBE_UNDERLYING_PROVIDER="gemini"
+            AAGENT_PROBE_SOURCE="selected_provider/$AAGENT_PROBE_SOURCE"
+            return 0
+            ;;
+        cursor-agent)
+            aagent_inherit_goose_probe cursor agent AAGENT_CURSOR_BIN CURSOR_AGENT_COMMAND && return 0
+            ;;
+        copilot-acp)
+            aagent_probe_copilot
+            AAGENT_PROBE_PROVIDER="goose"
+            AAGENT_PROBE_UNDERLYING_PROVIDER="copilot"
+            AAGENT_PROBE_SOURCE="selected_provider/$AAGENT_PROBE_SOURCE"
+            return 0
+            ;;
+        amp-acp)
+            aagent_probe_amp
+            AAGENT_PROBE_PROVIDER="goose"
+            AAGENT_PROBE_UNDERLYING_PROVIDER="amp"
+            AAGENT_PROBE_SOURCE="selected_provider/$AAGENT_PROBE_SOURCE"
+            return 0
+            ;;
+        chatgpt_codex)
+            aagent_set_probe_result ready included_account 2 "ChatGPT account via Goose" \
+                goose_chatgpt_codex_selected "$source" "$status"
+            return 0
+            ;;
+        gemini_oauth)
+            aagent_set_probe_result ready included_account 2 "Google account via Goose" \
+                goose_gemini_oauth_selected "$source" "$status"
+            return 0
+            ;;
+        github_copilot)
+            aagent_set_probe_result ready included_account 2 "GitHub Copilot via Goose" \
+                goose_github_copilot_selected "$source" "$status"
+            return 0
+            ;;
+        ollama|lmstudio|atomic_chat|omlx|local_inference)
+            case "$provider" in
+                ollama) endpoint="${OLLAMA_HOST-http://localhost:11434}" ;;
+                lmstudio) endpoint="${LM_STUDIO_HOST-http://localhost:1234}" ;;
+                atomic_chat) endpoint="${ATOMIC_CHAT_HOST-http://localhost:1337}" ;;
+                omlx) endpoint="${OMLX_HOST-http://localhost:8000}" ;;
+                *) endpoint="http://localhost" ;;
+            esac
+            aagent_classify_cursor_endpoint "$endpoint"
+            if [[ "$AAGENT_CURSOR_ENDPOINT_CLASS" == "local" ]]; then
+                aagent_set_probe_result ready local 2 "Local provider via Goose" \
+                    goose_local_provider_selected "$source" "$status"
+            else
+                aagent_set_probe_result ready unknown 2 "Remote self-hosted Goose provider" \
+                    goose_remote_local_provider_selected "$source" "$status"
+            fi
+            return 0
+            ;;
+        custom_*)
+            aagent_probe_goose_custom_provider "$provider"
+            return 0
+            ;;
+        anthropic|openai|google|openrouter|groq|mistral|xai|avian|huggingface|nanogpt|ollama_cloud|tetrate|meta|nearai|novita|perplexity|scaleway|venice|zai|zhipu|cerebras|deepseek|fireworks|inception|moonshot|nvidia|together|vercel_ai_gateway)
+            aagent_collect_present_environment_names GOOSE_PROVIDER__API_KEY
+            aagent_set_probe_result ready payg_byok 2 "API provider via Goose" \
+                goose_api_provider_selected "$source" "$status" "$AAGENT_PRESENT_ENVIRONMENT_NAMES"
+            return 0
+            ;;
+    esac
+
+    aagent_set_probe_result ready unknown 2 "Goose provider" goose_provider_selected \
+        "$source" "$status"
+}
+
 aagent_add_droid_settings_path() {
     local requested="$1"
     local existing
@@ -1765,6 +2092,7 @@ aagent_probe_provider() {
         gemini) aagent_probe_gemini ;;
         amp) aagent_probe_amp ;;
         cursor) aagent_probe_cursor "$executable" ;;
+        goose) aagent_probe_goose ;;
         droid) aagent_probe_droid ;;
         *)
             aagent_reset_probe_result "$provider"
@@ -1785,6 +2113,11 @@ aagent_project_probe_for_auth_policy() {
 
     aagent_reset_auth_environment_plan
     case "$provider" in
+        goose)
+            if [[ -n "$AAGENT_PROBE_UNDERLYING_PROVIDER" ]]; then
+                aagent_project_probe_for_auth_policy "$AAGENT_PROBE_UNDERLYING_PROVIDER"
+            fi
+            ;;
         claude)
             aagent_collect_claude_custom_route_environment_names
             if [[ -n "$AAGENT_CLAUDE_CUSTOM_ROUTE_ENVIRONMENT_NAMES" ]]; then
@@ -2738,6 +3071,26 @@ aagent_build_adapter_launch_plan() {
             AAGENT_ADAPTER_STDIN_DATA=""
             AAGENT_ADAPTER_INPUT_DESCRIPTION="argv"
             ;;
+        goose)
+            aagent_append_adapter_argument "run" "run"
+            aagent_append_model_argument "--model"
+            aagent_append_native_arguments
+            case "$AAGENT_INPUT_MODE" in
+                prompt)
+                    aagent_append_adapter_argument "--text" "--text"
+                    aagent_append_adapter_argument "$AAGENT_PROMPT" "<prompt>"
+                    ;;
+                stdin)
+                    aagent_append_adapter_argument "--instructions" "--instructions"
+                    aagent_append_adapter_argument "-" "-"
+                    ;;
+                both)
+                    AAGENT_ADAPTER_STDIN_DATA="$AAGENT_PROMPT"$'\n\n--- stdin context ---\n'"$AAGENT_STDIN"
+                    aagent_append_adapter_argument "--instructions" "--instructions"
+                    aagent_append_adapter_argument "-" "-"
+                    ;;
+            esac
+            ;;
         droid)
             aagent_append_adapter_argument "exec" "exec"
             aagent_append_model_argument "--model"
@@ -2819,7 +3172,7 @@ aagent_run_explicit_provider() {
 
     aagent_reset_auth_environment_plan
     case "$provider" in
-        claude|codex)
+        claude|codex|goose)
             aagent_probe_provider "$provider" "$AAGENT_RESOLVED_PATH"
             aagent_project_probe_for_auth_policy "$provider"
             ;;

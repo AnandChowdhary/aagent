@@ -865,9 +865,16 @@ Deliverable: separately releasable adapter batches using the same contract
 
 ### Phase 12B - Provider-routing adapters
 
-- [ ] **P12B-01 Revalidate and implement Goose.**
+- [x] **P12B-01 Revalidate and implement Goose.**
   Support `goose run --text`, selected-provider funding inheritance, local
   opt-in classification, and prohibit `goose info --check` during selection.
+
+  Evidence: [2026-08-05 Goose CLI revalidation](docs/research/goose-cli-2026-08-05.md)
+  freezes official Goose 1.45.0 invocation, input, model, output, session,
+  safety, configuration, and provider-routing behavior. Bash and PowerShell
+  implement safe launch planning and bounded passive funding inheritance with
+  adapter, discovery, probe, selection, introspection, security,
+  documentation, and credential-free GitHub Actions compatibility coverage.
 
 - [ ] **P12B-02 Revalidate and implement Qwen Code.**
   Distinguish the Coding Plan endpoint from generic API keys, preserve approval

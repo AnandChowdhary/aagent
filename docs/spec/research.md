@@ -89,6 +89,10 @@ paid model request:
 - Factory Droid exposes no passive account/plan command. Its account API key
   proves readiness but not funding; selected custom-model settings can identify
   only local versus remote BYOK routing.
+- Goose exposes its selected non-secret provider in configuration. Native CLI
+  and ACP providers can inherit the corresponding safe probe, while known
+  account, direct API, local, custom, and unknown routes remain distinct.
+  `goose info --check` is not passive and must never run during selection.
 
 Providers without a stable passive probe can still be used, but receive lower
 authentication confidence during automatic selection.

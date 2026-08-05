@@ -71,12 +71,16 @@ record_dir="$test_dir/records"
 work_dir="$test_dir/work dir"
 missing_dir="$test_dir/missing"
 marker_dir="$test_dir/markers"
-mkdir -p "$home_dir/.claude" "$home_dir/.codex" "$home_dir/.factory" "$fake_bin" "$record_dir" "$work_dir" "$marker_dir"
+goose_root="$test_dir/goose-root"
+goose_config_dir="$goose_root/config"
+mkdir -p "$home_dir/.claude" "$home_dir/.codex" "$home_dir/.factory" \
+    "$goose_config_dir/custom_providers" "$fake_bin" "$record_dir" "$work_dir" "$marker_dir"
 cp "$fake_provider" "$fake_bin/codex"
 cp "$fake_provider" "$fake_bin/copilot"
 cp "$fake_provider" "$fake_bin/agent"
+cp "$fake_provider" "$fake_bin/goose"
 cp "$fake_provider" "$fake_bin/droid"
-chmod +x "$fake_bin/codex" "$fake_bin/copilot" "$fake_bin/agent" "$fake_bin/droid"
+chmod +x "$fake_bin/codex" "$fake_bin/copilot" "$fake_bin/agent" "$fake_bin/goose" "$fake_bin/droid"
 
 # Credential locations are traps. A direct read would block on the FIFO; helper
 # lookups leave a marker. The provider status fixture is the only allowed source.
@@ -98,6 +102,7 @@ export AAGENT_COPILOT_BIN="$fake_bin/copilot"
 export AAGENT_GEMINI_BIN="$missing_dir/gemini"
 export AAGENT_AMP_BIN="$missing_dir/amp"
 export AAGENT_CURSOR_BIN="$fake_bin/agent"
+export AAGENT_GOOSE_BIN="$fake_bin/goose"
 export AAGENT_DROID_BIN="$fake_bin/droid"
 export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro","email":"person@example.com","organization":"Secret Org"},"requiresOpenaiAuth":true}}'
 export AAGENT_FAKE_VERSION_STDOUT='2026.07.23-e383d2b'
@@ -105,6 +110,10 @@ export AAGENT_FAKE_HELP_STDOUT='Usage: agent Start the Cursor Agent --print stat
 export AAGENT_FAKE_CURSOR_STATUS_STDOUT='{"isAuthenticated":true,"hasAccessToken":true,"hasRefreshToken":true,"status":"seeded-secret-token","message":"Cursor Secret Org","userInfo":{"email":"cursor@example.com","token":"cursor-secret-token"}}'
 export FACTORY_API_KEY='seeded-secret-token'
 printf '%s' '{"model":"custom:remote-0","customModels":[{"baseUrl":"https://models.example.test/v1","apiKey":"factory-secret-token","email":"factory@example.com","organization":"Factory Secret Org"}]}' >"$home_dir/.factory/settings.json"
+export GOOSE_PATH_ROOT="$goose_root"
+printf '%s\n' 'active_provider: custom_security' >"$goose_config_dir/config.yaml"
+printf '%s' '{"name":"custom_security","base_url":"https://models.example.test/v1","api_key_env":"TEST_GOOSE_API_KEY","requires_auth":true,"api_key":"goose-secret-token","email":"goose@example.com","organization":"Goose Secret Org"}' >"$goose_config_dir/custom_providers/custom_security.json"
+export TEST_GOOSE_API_KEY='seeded-secret-token'
 export AAGENT_FAKE_CODEX_APP_SERVER_STATUS=0
 export AAGENT_FAKE_RUN_STATUS=0
 unset AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
@@ -135,6 +144,9 @@ assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "cursor-secret-tok
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "factory-secret-token" "providers leaked Droid API key"
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "factory@example.com" "providers leaked Droid email"
 assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "Factory Secret Org" "providers leaked Droid organization"
+assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "goose-secret-token" "providers leaked Goose API key"
+assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "goose@example.com" "providers leaked Goose email"
+assert_not_contains "$(<"$test_dir/credential-audit.stdout")" "Goose Secret Org" "providers leaked Goose organization"
 [[ ! -e "$record_dir/run.count" ]] || fail "credential audit launched a model"
 
 rm -rf "$record_dir"
@@ -175,6 +187,16 @@ for flag in --auto --skip-permissions-unsafe --use-spec; do
 done
 assert_contains "$droid_safe_plan" "exec" "Droid dry-run omitted exec"
 [[ ! -e "$record_dir/run.count" ]] || fail "Droid safe dry-run launched a model"
+
+run_wrapper "$test_dir/goose-safe-dry-run" --provider goose --dry-run 'say hello'
+assert_equals "$AAGENT_TEST_STATUS" 0 "Goose safe dry-run failed"
+goose_safe_plan="$(<"$test_dir/goose-safe-dry-run.stdout")"
+for flag in --auto --yolo --with-builtin --no-profile; do
+    assert_not_contains "$goose_safe_plan" "$flag" "Goose wrapper injected $flag"
+done
+assert_contains "$goose_safe_plan" "run" "Goose dry-run omitted run"
+assert_contains "$goose_safe_plan" "--text" "Goose dry-run omitted text mode"
+[[ ! -e "$record_dir/run.count" ]] || fail "Goose safe dry-run launched a model"
 
 hostile_provider=$'not-a-provider\nforged: success'
 run_wrapper "$test_dir/hostile-provider" doctor "$hostile_provider"

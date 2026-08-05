@@ -54,7 +54,7 @@ try {
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
 
-    foreach ($provider in @("codex", "claude", "copilot", "agent", "droid")) {
+    foreach ($provider in @("codex", "claude", "copilot", "agent", "goose", "droid")) {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }
     if ($IsWindows) {
@@ -95,6 +95,14 @@ try {
     Assert-DiscoveryEqual (Get-AagentAdapter "cursor").Tier "tier2" "Cursor tier differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "cursor").Command "agent --print --output-format text PROMPT" "Cursor command differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "cursor").Probe "status --format json" "Cursor probe metadata differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "goose").Tier "tier2" "Goose tier differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "goose").Command "goose run --text PROMPT" "Goose command differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "goose").Stdin "argument-and-stdin" "Goose input capability differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "goose").Model "--model" "Goose model capability differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "goose").Structured "json,stream-json" "Goose structured-output capability differs."
+    Assert-DiscoveryEqual (Get-AagentAdapter "goose").Sessions "resume,name,no-session" "Goose session capability differs."
+    if (-not (Get-AagentAdapter "goose").Safety.Contains("never enables auto approval")) { throw "Goose safety metadata differs." }
+    Assert-DiscoveryEqual (Get-AagentAdapter "goose").Probe "selected provider config; never info --check" "Goose probe metadata differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "droid").Tier "tier2" "Droid tier differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "droid").Command "droid exec PROMPT" "Droid command differs."
     Assert-DiscoveryEqual (Get-AagentAdapter "droid").Stdin "argument-and-stdin" "Droid input capability differs."
@@ -119,6 +127,7 @@ try {
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "amp").Status "missing" "Amp missing status differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "copilot").Status "installed" "Installed Copilot status differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "cursor").Status "installed" "Installed Cursor status differs."
+    Assert-DiscoveryEqual (Get-DiscoveryResult $results "goose").Status "installed" "Installed Goose status differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "droid").Status "installed" "Installed Droid status differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "cursor").Path (Join-Path $fakeBin "agent.ps1") "Cursor path collides with aagent."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "cursor").Reason "Cursor CLI signature found" "Cursor signature reason differs."
@@ -152,6 +161,7 @@ try {
     $env:AAGENT_CODEX_BIN = $leadingExecutable
     $env:AAGENT_CLAUDE_BIN = $aagentScript
     $env:AAGENT_GEMINI_BIN = $overrideExecutable
+    $env:AAGENT_GOOSE_BIN = $overrideExecutable
     $env:AAGENT_DROID_BIN = $overrideExecutable
     $env:AAGENT_AMP_BIN = $invalidDirectory
     if ($brokenSupported) {
@@ -168,6 +178,8 @@ try {
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "claude").Reason "resolved target is the aagent wrapper" "Wrapper recursion reason differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "gemini").Status "installed" "Unicode/spaced override was rejected."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "gemini").Path $overrideExecutable "Unicode/spaced override path differs."
+    Assert-DiscoveryEqual (Get-DiscoveryResult $results "goose").Status "installed" "Goose override was rejected."
+    Assert-DiscoveryEqual (Get-DiscoveryResult $results "goose").Path $overrideExecutable "Goose override path differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "droid").Status "installed" "Droid override was rejected."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "droid").Path $overrideExecutable "Droid override path differs."
     Assert-DiscoveryEqual (Get-DiscoveryResult $results "amp").Status "missing" "Directory override was accepted."

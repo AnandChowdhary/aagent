@@ -41,7 +41,7 @@ function Assert-ProbeResult {
     Assert-ProbeEqual $Result.ProbeStatus $Status "$Provider probe status differs."
     Assert-ProbeEqual (
         $Result.PSObject.Properties.Name -join ","
-    ) "Provider,Readiness,FundingClass,ConfidenceRank,PlanLabel,ReasonCode,ShadowingVariables,Source,ProbeStatus" `
+    ) "Provider,Readiness,FundingClass,ConfidenceRank,PlanLabel,ReasonCode,ShadowingVariables,Source,ProbeStatus,UnderlyingProvider" `
         "$Provider schema contains a raw-output field."
 
     if ($Result.Readiness -notin @("ready", "unknown", "unusable")) {
@@ -102,7 +102,9 @@ $probeEnvironmentNames = @(
     "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_API_KEY",
     "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL",
     "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
-    "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"
+    "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
+    "GOOSE_PROVIDER", "GOOSE_PATH_ROOT", "GOOSE_PROVIDER__API_KEY", "OLLAMA_HOST", "TEST_GOOSE_API_KEY",
+    "AAGENT_CODEX_BIN"
 )
 $originalEnvironment = @{}
 foreach ($name in $probeEnvironmentNames) {
@@ -111,9 +113,13 @@ foreach ($name in $probeEnvironmentNames) {
 
 function Clear-ProbeCase {
     foreach ($name in $probeEnvironmentNames) {
-        if ($name -notin @("HOME", "XDG_CONFIG_HOME", "PATH", "AAGENT_FAKE_RECORD_DIR")) {
+        if ($name -notin @("HOME", "XDG_CONFIG_HOME", "PATH", "AAGENT_FAKE_RECORD_DIR", "GOOSE_PATH_ROOT")) {
             Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
         }
+    }
+    if (-not [string]::IsNullOrEmpty($gooseConfigDir)) {
+        Remove-Item -LiteralPath $gooseConfigDir -Recurse -Force -ErrorAction SilentlyContinue
+        [IO.Directory]::CreateDirectory((Join-Path $gooseConfigDir "custom_providers")) | Out-Null
     }
 }
 
@@ -135,7 +141,7 @@ try {
     )) {
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
-    foreach ($provider in @("claude", "codex", "opencode", "agent")) {
+    foreach ($provider in @("claude", "codex", "opencode", "agent", "goose")) {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }
     foreach ($commandName in @("security", "secret-tool", "cmdkey", "api-key-helper")) {
@@ -160,6 +166,10 @@ try {
     $env:XDG_CONFIG_HOME = Join-Path $testDir "config"
     $env:PATH = "$trapBin$([IO.Path]::PathSeparator)$fakeBin$([IO.Path]::PathSeparator)$($originalEnvironment['PATH'])"
     $env:AAGENT_FAKE_RECORD_DIR = $recordDir
+    $gooseRoot = Join-Path $testDir "goose-root"
+    $gooseConfigDir = Join-Path $gooseRoot "config"
+    $env:GOOSE_PATH_ROOT = $gooseRoot
+    [IO.Directory]::CreateDirectory((Join-Path $gooseConfigDir "custom_providers")) | Out-Null
 
     Clear-ProbeCase
     $env:AAGENT_FAKE_CLAUDE_STDOUT = '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max","apiProvider":"claude.ai","token":"seeded-secret-token","email":"person@example.com","organization":"Secret Organization","nested":{"huge":"ignored"}}'
@@ -434,6 +444,94 @@ try {
         $contents.Contains("arg.2.hex=$(Convert-ProbeHex 'json')")
     })) {
         throw "Cursor status --format json command differs."
+    }
+
+    Clear-ProbeCase
+    $gooseProbeCountBefore = [IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()
+    $result = Invoke-AagentProviderProbe "goose" (Join-Path $fakeBin "goose.ps1")
+    Assert-ProbeResult $result goose unknown unknown 0 "Unknown" `
+        goose_provider_not_selected none skipped_no_passive
+    Assert-ProbeEqual ([IO.File]::ReadAllText((Join-Path $recordDir "probe.count"), $utf8).Trim()) `
+        $gooseProbeCountBefore "Goose ran an active provider probe without a selected provider."
+
+    Clear-ProbeCase
+    $env:GOOSE_PROVIDER = "anthropic"
+    $env:GOOSE_PROVIDER__API_KEY = "seeded-secret-token"
+    $result = Invoke-AagentProviderProbe "goose" (Join-Path $fakeBin "goose.ps1")
+    Assert-ProbeResult $result goose ready payg_byok 2 "API provider via Goose" `
+        goose_api_provider_selected environment environment_only
+    Assert-ProbeEqual ($result.ShadowingVariables -join ",") "GOOSE_PROVIDER__API_KEY" `
+        "Goose API-key evidence differs."
+
+    Clear-ProbeCase
+    [IO.File]::WriteAllText((Join-Path $gooseConfigDir "config.yaml"), "active_provider: ollama`n", $utf8)
+    $result = Invoke-AagentProviderProbe "goose" (Join-Path $fakeBin "goose.ps1")
+    Assert-ProbeResult $result goose ready local 2 "Local provider via Goose" `
+        goose_local_provider_selected settings success
+
+    Clear-ProbeCase
+    [IO.File]::WriteAllText((Join-Path $gooseConfigDir "config.yaml"), "active_provider: ollama`n", $utf8)
+    $env:OLLAMA_HOST = "https://ollama.example.test"
+    $result = Invoke-AagentProviderProbe "goose" (Join-Path $fakeBin "goose.ps1")
+    Assert-ProbeResult $result goose ready unknown 2 "Remote self-hosted Goose provider" `
+        goose_remote_local_provider_selected settings success
+
+    Clear-ProbeCase
+    [IO.File]::WriteAllText((Join-Path $gooseConfigDir "config.yaml"), "active_provider: chatgpt_codex`n", $utf8)
+    $result = Invoke-AagentProviderProbe "goose" (Join-Path $fakeBin "goose.ps1")
+    Assert-ProbeResult $result goose ready included_account 2 "ChatGPT account via Goose" `
+        goose_chatgpt_codex_selected settings success
+
+    Clear-ProbeCase
+    [IO.File]::WriteAllText((Join-Path $gooseConfigDir "config.yaml"), "active_provider: codex-acp`n", $utf8)
+    $env:AAGENT_CODEX_BIN = Join-Path $fakeBin "codex.ps1"
+    $env:CODEX_API_KEY = "seeded-secret-token"
+    $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro"},"requiresOpenaiAuth":true}}'
+    $result = Invoke-AagentProviderProbe "goose" (Join-Path $fakeBin "goose.ps1")
+    Assert-ProbeResult $result goose ready included_confirmed 4 "ChatGPT Pro" `
+        codex_chatgpt_account selected_provider/app_server success
+    Assert-ProbeEqual $result.UnderlyingProvider "codex" "Goose did not retain its funding inheritance source."
+    $projected = Resolve-AagentProbeAuthPolicy $result "prefer-included"
+    Assert-ProbeEqual ($projected.EnvironmentPlan.Unset -join ",") "CODEX_API_KEY" `
+        "Goose did not inherit Codex API-key suppression."
+
+    Clear-ProbeCase
+    [IO.File]::WriteAllText((Join-Path $gooseConfigDir "config.yaml"), "active_provider: custom_loopback`n", $utf8)
+    [IO.File]::WriteAllText(
+        (Join-Path $gooseConfigDir "custom_providers/custom_loopback.json"),
+        '{"name":"custom_loopback","base_url":"http://127.0.0.1:8080/v1","api_key_env":"","requires_auth":false,"secret":"seeded-secret-token"}',
+        $utf8
+    )
+    $result = Invoke-AagentProviderProbe "goose" (Join-Path $fakeBin "goose.ps1")
+    Assert-ProbeResult $result goose ready local 2 "Local custom Goose provider" `
+        goose_custom_provider_local selected_provider success
+
+    Clear-ProbeCase
+    [IO.File]::WriteAllText((Join-Path $gooseConfigDir "config.yaml"), "active_provider: custom_remote`n", $utf8)
+    [IO.File]::WriteAllText(
+        (Join-Path $gooseConfigDir "custom_providers/custom_remote.json"),
+        '{"name":"custom_remote","base_url":"https://models.example.test/v1","api_key_env":"TEST_GOOSE_API_KEY","requires_auth":true,"secret":"seeded-secret-token"}',
+        $utf8
+    )
+    $env:TEST_GOOSE_API_KEY = "seeded-secret-token"
+    $result = Invoke-AagentProviderProbe "goose" (Join-Path $fakeBin "goose.ps1")
+    Assert-ProbeResult $result goose ready payg_byok 2 "Goose BYOK provider" `
+        goose_custom_provider_byok selected_provider success
+    Assert-ProbeEqual ($result.ShadowingVariables -join ",") "TEST_GOOSE_API_KEY" `
+        "Goose custom-provider key evidence differs."
+
+    Clear-ProbeCase
+    [IO.File]::WriteAllText(
+        (Join-Path $gooseConfigDir "config.yaml"),
+        "active_provider: [malformed seeded-secret-token]`n",
+        $utf8
+    )
+    $result = Invoke-AagentProviderProbe "goose" (Join-Path $fakeBin "goose.ps1")
+    Assert-ProbeResult $result goose unknown unknown 0 "Unknown" `
+        goose_provider_config_unavailable selected_provider schema_failure
+
+    if (Get-ChildItem -LiteralPath $recordDir -Filter "goose.probe.*.record") {
+        throw "Goose probe invoked goose info --check or another active command."
     }
 
     $factorySettings = Join-Path $homeDir ".factory/settings.json"
