@@ -126,8 +126,11 @@ assert_equals "$("$install_dir/aagent" --version)" "aagent 0.1.0" "remote instal
 
 if command -v cygpath >/dev/null 2>&1; then
     posix_windows_install_dir="$test_dir/windows native install/bin"
+    windows_remote_fixture="$test_dir/windows-remote-assets"
+    mkdir -p "$windows_remote_fixture"
+    cp "$remote_dir/aagent.sh" "$remote_dir/SHA256SUMS" "$windows_remote_fixture/"
     windows_install_dir="$(cygpath -w "$posix_windows_install_dir")"
-    windows_remote_dir="$(cygpath -m "$remote_dir")"
+    windows_remote_dir="$(cygpath -m "$windows_remote_fixture")"
     previous_install_dir="$install_dir"
     install_dir="$windows_install_dir"
     run_installer "$test_dir/windows-native-path" \
@@ -135,6 +138,9 @@ if command -v cygpath >/dev/null 2>&1; then
         AAGENT_SOURCE="file:///$windows_remote_dir/aagent.sh" \
         AAGENT_CHECKSUM_SOURCE="file:///$windows_remote_dir/SHA256SUMS" \
         AAGENT_EXPECTED_VERSION=0.1.0
+    if [[ "$AAGENT_TEST_STATUS" != 0 ]]; then
+        cat "$test_dir/windows-native-path.stderr" >&2
+    fi
     assert_equals "$AAGENT_TEST_STATUS" 0 \
         "checksummed remote Bash install with a native Windows path failed"
     assert_equals "$("$posix_windows_install_dir/aagent" --version)" "aagent 0.1.0" \
