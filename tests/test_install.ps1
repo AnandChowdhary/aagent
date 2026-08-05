@@ -30,7 +30,7 @@ try {
     [IO.Directory]::CreateDirectory($remoteDir) | Out-Null
     $env:INSTALL_DIR = $installDir
     $env:AAGENT_SOURCE = $aagentScript
-    $env:AAGENT_EXPECTED_VERSION = "0.1.0-dev"
+    $env:AAGENT_EXPECTED_VERSION = "0.1.0"
 
     . $installScript
     foreach ($releaseAsset in @("aagent.sh", "aagent.ps1", "install.sh", "install.ps1")) {
@@ -47,7 +47,7 @@ try {
     if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf)) { throw "PowerShell runner was not installed" }
     if (-not (Test-Path -LiteralPath $launcherPath -PathType Leaf)) { throw "Windows launcher was not installed" }
     $version = (& pwsh -NoLogo -NoProfile -File $targetPath --version | Out-String).Trim()
-    Assert-Equal $version "aagent 0.1.0-dev" "installed PowerShell version differs"
+    Assert-Equal $version "aagent 0.1.0" "installed PowerShell version differs"
     $help = (& pwsh -NoLogo -NoProfile -File $targetPath --help | Out-String)
     Assert-Contains $help "aagent providers" "installed PowerShell help is incomplete"
     Assert-Contains ([IO.File]::ReadAllText($launcherPath, $utf8)) '"%~dp0aagent.ps1" %*' "launcher forwarding differs"
@@ -57,13 +57,13 @@ try {
     Invoke-Expression ([IO.File]::ReadAllText($installScript, $utf8)) *> $null
     $pipeTarget = Join-Path $pipeInstallDir "aagent.ps1"
     $version = (& pwsh -NoLogo -NoProfile -File $pipeTarget --version | Out-String).Trim()
-    Assert-Equal $version "aagent 0.1.0-dev" "Invoke-Expression install did not execute"
+    Assert-Equal $version "aagent 0.1.0" "Invoke-Expression install did not execute"
     $env:INSTALL_DIR = $installDir
 
     [IO.File]::WriteAllText($targetPath, "old-install", $utf8)
     & $installScript *> $null
     $version = (& pwsh -NoLogo -NoProfile -File $targetPath --version | Out-String).Trim()
-    Assert-Equal $version "aagent 0.1.0-dev" "existing PowerShell install was not replaced"
+    Assert-Equal $version "aagent 0.1.0" "existing PowerShell install was not replaced"
 
     $knownGoodHash = (Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash
     $invalidRunner = Join-Path $testDir "invalid runner.ps1"
@@ -88,7 +88,7 @@ try {
     $env:AAGENT_CHECKSUM_SOURCE = "https://downloads.example.test/SHA256SUMS"
     Invoke-AagentInstall *> $null
     $version = (& pwsh -NoLogo -NoProfile -File $targetPath --version | Out-String).Trim()
-    Assert-Equal $version "aagent 0.1.0-dev" "checksummed remote PowerShell install failed"
+    Assert-Equal $version "aagent 0.1.0" "checksummed remote PowerShell install failed"
 
     $knownGoodHash = (Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash
     [IO.File]::WriteAllText(

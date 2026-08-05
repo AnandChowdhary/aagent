@@ -10,7 +10,7 @@ readonly \
     AAGENT_EXIT_UNAVAILABLE=69 \
     AAGENT_EXIT_SOFTWARE=70 \
     AAGENT_EXIT_CONFIG=78
-readonly AAGENT_VERSION="0.1.0-dev"
+readonly AAGENT_VERSION="0.1.0"
 readonly AAGENT_POPULARITY_SNAPSHOT="2026-08-04"
 
 aagent_reset_registry() {

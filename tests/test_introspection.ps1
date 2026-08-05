@@ -116,7 +116,7 @@ try {
     $env:AAGENT_CODEX_BIN = $codexPath
     $result = Invoke-Wrapper @("doctor", "codex")
     Assert-Equal $result.Status 0 "provider-scoped doctor failed"
-    Assert-Contains $result.Stdout "wrapper: aagent 0.1.0-dev" "doctor omitted wrapper information"
+    Assert-Contains $result.Stdout "wrapper: aagent 0.1.0" "doctor omitted wrapper information"
     Assert-Contains $result.Stdout "platform:" "doctor omitted platform information"
     Assert-Contains $result.Stdout "configuration: not found" "doctor omitted configuration status"
     Assert-Contains $result.Stdout "selected provider: none" "scoped doctor unexpectedly selected globally"

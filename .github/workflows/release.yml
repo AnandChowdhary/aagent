@@ -1,0 +1,237 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/release.yml"
+      - "aagent.sh"
+      - "aagent.ps1"
+      - "install.sh"
+      - "install.ps1"
+      - "SHA256SUMS"
+      - "scripts/package-release.sh"
+      - "scripts/release-gate.sh"
+      - "tests/**"
+      - "docs/releases/**"
+      - "README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Validate release assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Validate versions, checksums, notes, and asset set
+        shell: bash
+        run: |
+          tag=""
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          fi
+          bash ./scripts/package-release.sh "$RUNNER_TEMP/aagent-release" "$tag"
+
+      - name: Retain the exact candidate assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: aagent-release-assets
+          path: ${{ runner.temp }}/aagent-release
+          if-no-files-found: error
+          retention-days: 14
+
+  test-bash:
+    name: Release Bash (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Run the exact release candidate through the Bash suite
+        shell: bash
+        run: bash ./tests/test_aagent.sh
+
+  test-powershell:
+    name: Release PowerShell (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Run the exact release candidate through the PowerShell suite
+        shell: pwsh
+        run: ./tests/test_aagent.ps1
+
+  release-gate:
+    name: Exact release gate (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Run the reproducible release gate at this commit
+        shell: bash
+        run: bash ./scripts/release-gate.sh
+
+  publish-prerelease:
+    name: Publish verified assets as a prerelease
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [package, test-bash, test-powershell, release-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Rebuild and publish the exact tagged assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash ./scripts/package-release.sh "$RUNNER_TEMP/aagent-release" "$GITHUB_REF_NAME"
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP/aagent-release/"* \
+            --verify-tag \
+            --prerelease \
+            --latest=false \
+            --title "aagent ${GITHUB_REF_NAME#v}" \
+            --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+
+  verify-bash-release:
+    name: Remote release Bash (${{ matrix.os }})
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: publish-prerelease
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Install and invoke the published Bash artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          base_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          install_dir="$RUNNER_TEMP/aagent-bin"
+          installer="$RUNNER_TEMP/install-aagent.sh"
+          curl --fail --silent --show-error --location --retry 5 \
+            "$base_url/install.sh" -o "$installer"
+          AAGENT_DOWNLOAD_BASE_URL="$base_url" \
+          AAGENT_EXPECTED_VERSION="$version" \
+          INSTALL_DIR="$install_dir" \
+            bash "$installer" >/dev/null
+          export PATH="$install_dir:$PATH"
+          [[ "$(aagent --version)" == "aagent $version" ]]
+          aagent --help >/dev/null
+          aagent providers >"$RUNNER_TEMP/providers.txt"
+          grep -q '^codex' "$RUNNER_TEMP/providers.txt"
+
+          workspace="$GITHUB_WORKSPACE"
+          if command -v cygpath >/dev/null 2>&1; then
+            workspace="$(cygpath -u "$workspace")"
+          fi
+          record_dir="$RUNNER_TEMP/aagent-records"
+          smoke_output="$(
+            AAGENT_CODEX_BIN="$workspace/tests/helpers/fake-provider.sh" \
+            AAGENT_FAKE_PROVIDER=codex \
+            AAGENT_FAKE_RECORD_DIR="$record_dir" \
+            AAGENT_FAKE_RUN_STDOUT=release-smoke \
+              aagent --quiet -P codex "say hello"
+          )"
+          [[ "$smoke_output" == "release-smoke" ]]
+          [[ -f "$record_dir/codex.run.1.record" ]]
+
+  verify-powershell-release:
+    name: Remote release PowerShell (windows-latest)
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: publish-prerelease
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Install and invoke the published PowerShell artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $baseUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GITHUB_REF_NAME"
+          $installDir = Join-Path $env:RUNNER_TEMP "aagent-bin"
+          $installer = Join-Path $env:RUNNER_TEMP "install-aagent.ps1"
+          Invoke-WebRequest -Uri "$baseUrl/install.ps1" -OutFile $installer
+          $env:AAGENT_DOWNLOAD_BASE_URL = $baseUrl
+          $env:AAGENT_EXPECTED_VERSION = $version
+          $env:INSTALL_DIR = $installDir
+          & pwsh -NoLogo -NoProfile -File $installer *> $null
+          $runner = Join-Path $installDir "aagent.ps1"
+          if (-not (Test-Path -LiteralPath $runner -PathType Leaf)) {
+            throw "remote release did not install the PowerShell runner"
+          }
+          $env:PATH = "$installDir;$env:PATH"
+          $actualVersion = (& aagent.cmd --version | Out-String).Trim()
+          if ($actualVersion -cne "aagent $version") { throw "remote release version differs" }
+          & aagent.cmd --help *> $null
+          & aagent.cmd providers > (Join-Path $env:RUNNER_TEMP "providers.txt")
+
+          $recordDir = Join-Path $env:RUNNER_TEMP "aagent-records"
+          $env:AAGENT_CODEX_BIN = Join-Path $env:GITHUB_WORKSPACE "tests/helpers/fake-provider.ps1"
+          $env:AAGENT_FAKE_PROVIDER = "codex"
+          $env:AAGENT_FAKE_RECORD_DIR = $recordDir
+          $env:AAGENT_FAKE_RUN_STDOUT = "release-smoke"
+          $smokeOutput = (& aagent.cmd --quiet -P codex "say hello" | Out-String).Trim()
+          if ($smokeOutput -cne "release-smoke") { throw "remote release invocation differs" }
+          if (-not (Test-Path -LiteralPath (Join-Path $recordDir "codex.run.1.record"))) {
+            throw "remote release did not invoke the fake provider"
+          }
+
+  finalize-release:
+    name: Publish final GitHub Release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [verify-bash-release, verify-powershell-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Promote the remotely verified prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease=false \
+            --latest
+          [[ "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --json isPrerelease --jq .isPrerelease)" == "false" ]]
+          actual_assets="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | sort | tr '\n' ' ')"
+          [[ "$actual_assets" == "SHA256SUMS aagent.ps1 aagent.sh install.ps1 install.sh " ]]
