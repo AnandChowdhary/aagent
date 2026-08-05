@@ -59,9 +59,15 @@ used for the interface and selection survey.
 - Aider: [scripting guide](https://aider.chat/docs/scripting.html),
   [options reference](https://aider.chat/docs/config/options.html),
   [Copilot subscription provider](https://aider.chat/docs/llms/github.html)
-- Cursor CLI: [headless mode](https://cursor.com/docs/cli/headless),
+- Cursor CLI: [overview](https://docs.cursor.com/en/cli/overview),
+  [installation](https://docs.cursor.com/en/cli/installation),
+  [headless mode](https://docs.cursor.com/en/cli/headless),
+  [parameter reference](https://docs.cursor.com/en/cli/reference/parameters),
+  [output formats](https://docs.cursor.com/en/cli/reference/output-format),
   [authentication](https://docs.cursor.com/en/cli/reference/authentication),
-  [parameter reference](https://cursor.com/docs/cli/reference/parameters)
+  [permissions](https://docs.cursor.com/en/cli/reference/permissions),
+  [live installer](https://cursor.com/install), and
+  [2026-08-05 revalidation](../research/cursor-cli-2026-08-05.md)
 - OpenHands: [official repository](https://github.com/OpenHands/OpenHands)
 
 ## Popularity snapshot inputs

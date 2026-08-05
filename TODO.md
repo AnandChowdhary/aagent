@@ -831,9 +831,15 @@ Deliverable: separately releasable adapter batches using the same contract
   request; `.github/workflows/compatibility.yml` checks the current official
   `@github/copilot` help/version surface on a weekly and manual schedule.
 
-- [ ] **P12A-03 Revalidate Cursor CLI.**
+- [x] **P12A-03 Revalidate Cursor CLI.**
   Confirm the `agent` executable, `--print`, model/native options,
   `status --format json`, plan visibility, and proposed-change default.
+
+  Evidence: [2026-08-05 Cursor CLI revalidation](docs/research/cursor-cli-2026-08-05.md)
+  checks the current first-party documentation, live installer, local CLI, and
+  downloaded build `2026.07.23-e383d2b` without login or a model request. It
+  freezes executable-collision, invocation, safety, auth, funding, and test
+  requirements for P12A-04.
 
 - [ ] **P12A-04 Implement `cursor`.**
   Prevent `agent`/`aagent` recursion, allowlist authentication booleans and

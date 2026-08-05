@@ -141,7 +141,7 @@ candidate.
 | `crush` | `crush run PROMPT` | no documented stable JSON mode | Native permission prompts remain unless `--yolo` is explicitly used. |
 | `vibe` | `vibe --prompt PROMPT` | JSON and streaming NDJSON | Supports auto-approval, tool restrictions, budgets, sessions, and configurable agents. |
 | `kiro` | `kiro-cli chat --no-interactive PROMPT` | no documented stable JSON mode | Headless use requires an API key; trust flags control pre-approved tools. |
-| `cursor` | `agent --print PROMPT` | JSON and stream JSON | Changes are proposed unless the user explicitly supplies Cursor's force/yolo option. |
+| `cursor` | `agent --print --output-format text PROMPT` | JSON and stream JSON | The installer makes `agent` primary and `cursor-agent` a legacy alias. Reject wrapper recursion; changes are proposed unless the user explicitly supplies Cursor's force/yolo option. |
 | `aider` | `aider --message PROMPT` | no documented stable JSON mode | Automatically commits changes by default. An adapter must expose this fact and must not silently broaden Git side effects. |
 
 Tier 2 means the official interface is suitable, but its adapter is not required
@@ -156,7 +156,7 @@ to call the initial implementation complete.
 | Qwen Code | Coding Plan endpoint and documented auth-selection configuration | A Coding Plan uses an API key but is `included_confirmed`; generic API keys remain provider-specific. |
 | Kimi Code | Managed-login or selected-provider metadata | Kimi membership API keys can share membership quota, so keys are not automatically BYOK. |
 | Cline | Selected provider when exposed safely | `openai-codex` is subscription-backed; Cline account credits and other BYOK providers require different classes. No focused public status command currently exposes this safely. |
-| Cursor CLI | `agent status --format json`, parsing only authentication booleans and endpoint class | Browser and `CURSOR_API_KEY` both authenticate Cursor accounts; plan tier and remaining personal usage are unavailable. |
+| Cursor CLI | `agent status --format json`, parsing only three authentication booleans and an optional endpoint class | The status command may attempt account enrichment and can return PII, which must be discarded. Browser and `CURSOR_API_KEY` both authenticate Cursor accounts; plan tier and remaining personal usage are unavailable. |
 | Aider | Nonsecret model/base-URL selection only | Local models and Copilot can avoid direct API billing; normal configs may contain raw keys and must not be emitted or parsed wholesale. |
 | Crush | Selected provider and documented OAuth metadata, when safely exposed | Copilot can be included; Hyper and provider keys require provider-specific funding semantics. `crush login` is not a status probe. |
 | Mistral Vibe | Browser/account state and selected provider profile, when safely exposed | Key location does not distinguish included Vibe budget from pay-as-you-go. |
