@@ -49,7 +49,7 @@ fi
 
 readonly AAGENT_COMPAT_PROVIDER="$1"
 case "$AAGENT_COMPAT_PROVIDER" in
-    claude|codex|opencode|copilot|amp|gemini|cursor|droid) ;;
+    claude|codex|opencode|copilot|amp|gemini|cursor|droid|goose) ;;
     *)
         compat_usage
         printf 'aagent compatibility: unknown supported provider: %s\n' "$AAGENT_COMPAT_PROVIDER" >&2
@@ -144,6 +144,17 @@ case "$AAGENT_COMPAT_PROVIDER" in
         compat_require exec-help "$AAGENT_COMPAT_LAST_OUTPUT" "--auto"
         compat_require exec-help "$AAGENT_COMPAT_LAST_OUTPUT" "--skip-permissions-unsafe"
         compat_require exec-help "$AAGENT_COMPAT_LAST_OUTPUT" "Read-only mode"
+        ;;
+    goose)
+        compat_capture help "$AAGENT_COMPAT_EXECUTABLE" --help
+        compat_require help "$AAGENT_COMPAT_LAST_OUTPUT" "run"
+        compat_capture run-help "$AAGENT_COMPAT_EXECUTABLE" run --help
+        compat_require run-help "$AAGENT_COMPAT_LAST_OUTPUT" "--text"
+        compat_require run-help "$AAGENT_COMPAT_LAST_OUTPUT" "--instructions"
+        compat_require run-help "$AAGENT_COMPAT_LAST_OUTPUT" "--model"
+        compat_require run-help "$AAGENT_COMPAT_LAST_OUTPUT" "--output-format"
+        compat_require run-help "$AAGENT_COMPAT_LAST_OUTPUT" "--provider"
+        compat_require run-help "$AAGENT_COMPAT_LAST_OUTPUT" "--no-session"
         ;;
 esac
 

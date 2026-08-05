@@ -158,7 +158,7 @@ $testDir = Join-Path ([IO.Path]::GetTempPath()) ("aagent-selection-" + [guid]::N
 $selectionEnvironmentNames = @(
     "HOME", "XDG_CONFIG_HOME", "APPDATA", "AAGENT_PROVIDER", "AAGENT_AUTH_POLICY", "AAGENT_PRIORITY", "AAGENT_ALLOW_LOCAL",
     "AAGENT_CLAUDE_BIN", "AAGENT_CODEX_BIN", "AAGENT_OPENCODE_BIN", "AAGENT_COPILOT_BIN",
-    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN", "AAGENT_CURSOR_BIN", "AAGENT_DROID_BIN",
+    "AAGENT_GEMINI_BIN", "AAGENT_AMP_BIN", "AAGENT_CURSOR_BIN", "AAGENT_GOOSE_BIN", "AAGENT_DROID_BIN",
     "AAGENT_FAKE_RECORD_DIR", "AAGENT_FAKE_INVOCATION_KIND", "AAGENT_FAKE_PROVIDER",
     "AAGENT_FAKE_ENV_PRESENCE", "AAGENT_FAKE_ENV_CAPTURE", "AAGENT_FAKE_PROBE_STDOUT", "AAGENT_FAKE_PROBE_STDERR",
     "AAGENT_FAKE_PROBE_STATUS", "AAGENT_FAKE_PROBE_DELAY", "AAGENT_FAKE_PROBE_BYTES",
@@ -179,7 +179,9 @@ $selectionEnvironmentNames = @(
     "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_API_KEY",
     "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_HEADERS", "COPILOT_MODEL",
     "COPILOT_PROVIDER_MODEL_ID", "COPILOT_PROVIDER_WIRE_MODEL",
-    "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"
+    "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
+    "GOOSE_PROVIDER", "GOOSE_PROVIDER__API_KEY", "OLLAMA_HOST",
+    "CODEX_COMMAND", "CLAUDE_CODE_COMMAND", "CURSOR_AGENT_COMMAND"
 )
 $originalEnvironment = @{}
 foreach ($name in $selectionEnvironmentNames) {
@@ -200,7 +202,7 @@ try {
     )) {
         [IO.Directory]::CreateDirectory($directory) | Out-Null
     }
-    foreach ($provider in @("claude", "codex", "opencode", "copilot", "amp", "gemini", "agent", "droid")) {
+    foreach ($provider in @("claude", "codex", "opencode", "copilot", "amp", "gemini", "agent", "goose", "droid")) {
         Copy-Item -LiteralPath $fakeProvider -Destination (Join-Path $fakeBin "$provider.ps1")
     }
     $env:HOME = $homeDir
@@ -228,6 +230,7 @@ try {
         $env:AAGENT_GEMINI_BIN = Join-Path $missingDir "gemini"
         $env:AAGENT_AMP_BIN = Join-Path $missingDir "amp"
         $env:AAGENT_CURSOR_BIN = Join-Path $missingDir "agent"
+        $env:AAGENT_GOOSE_BIN = Join-Path $missingDir "goose"
         $env:AAGENT_DROID_BIN = Join-Path $missingDir "droid"
         $env:AAGENT_FAKE_VERSION_STDOUT = "2026.07.23-e383d2b"
         $env:AAGENT_FAKE_HELP_STDOUT = "Usage: agent Start the Cursor Agent --print status"
@@ -336,6 +339,48 @@ try {
     Assert-SelectionEqual $processResult.Status 0 "Allowed Cursor local route failed"
     if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "agent.run.*.record")) {
         throw "Allowed Cursor local route did not run"
+    }
+
+    Clear-SelectionCase
+    $env:AAGENT_GOOSE_BIN = Join-Path $fakeBin "goose.ps1"
+    $env:AAGENT_CODEX_BIN = Join-Path $fakeBin "codex.ps1"
+    $env:GOOSE_PROVIDER = "chatgpt_codex"
+    $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}}'
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Goose included-account scenario failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "goose.run.*.record")) {
+        throw "Goose ChatGPT account did not beat API-only Codex"
+    }
+    Assert-SelectionContains $processResult.Stderr `
+        "using goose (included_account, ChatGPT account via Goose; higher funding class (included_account))" `
+        "Goose selection notice differs"
+
+    Clear-SelectionCase
+    $env:AAGENT_GOOSE_BIN = Join-Path $fakeBin "goose.ps1"
+    $env:CODEX_COMMAND = Join-Path $fakeBin "codex.ps1"
+    $env:GOOSE_PROVIDER = "codex-acp"
+    $env:AAGENT_FAKE_CODEX_APP_SERVER_STDOUT = '{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro"},"requiresOpenaiAuth":true}}'
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Goose Codex-inheritance scenario failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "goose.run.*.record")) {
+        throw "Goose did not inherit Codex subscription funding"
+    }
+
+    Clear-SelectionCase
+    $env:AAGENT_GOOSE_BIN = Join-Path $fakeBin "goose.ps1"
+    $env:GOOSE_PROVIDER = "ollama"
+    $processResult = Invoke-SelectionProcess @("say hello")
+    Assert-SelectionEqual $processResult.Status $AagentExitUnavailable "Goose local route bypassed allow-local"
+    if (Test-Path -LiteralPath (Join-Path $recordDir "run.count")) {
+        throw "Blocked Goose local route received the prompt"
+    }
+    $processResult = Invoke-SelectionProcess @("--allow-local", "true", "say hello")
+    Assert-SelectionEqual $processResult.Status 0 "Allowed Goose local route failed"
+    if (-not (Get-ChildItem -LiteralPath $recordDir -Filter "goose.run.*.record")) {
+        throw "Allowed Goose local route did not run"
+    }
+    if (Get-ChildItem -LiteralPath $recordDir -Filter "goose.probe.*.record") {
+        throw "Goose selection invoked info --check or another active probe"
     }
 
     Clear-SelectionCase

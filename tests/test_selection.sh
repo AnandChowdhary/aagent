@@ -130,7 +130,7 @@ original_path="$PATH"
 selection_environment_names=(
     HOME XDG_CONFIG_HOME AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
     AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_COPILOT_BIN
-    AAGENT_GEMINI_BIN AAGENT_AMP_BIN AAGENT_CURSOR_BIN AAGENT_DROID_BIN
+    AAGENT_GEMINI_BIN AAGENT_AMP_BIN AAGENT_CURSOR_BIN AAGENT_GOOSE_BIN AAGENT_DROID_BIN
     AAGENT_FAKE_RECORD_DIR AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROVIDER
     AAGENT_FAKE_ENV_PRESENCE AAGENT_FAKE_ENV_CAPTURE AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
     AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
@@ -152,6 +152,7 @@ selection_environment_names=(
     COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS COPILOT_MODEL \
     COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL \
     COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
+    GOOSE_PROVIDER GOOSE_PROVIDER__API_KEY OLLAMA_HOST CODEX_COMMAND CLAUDE_CODE_COMMAND CURSOR_AGENT_COMMAND
 )
 
 cleanup_selection_test() {
@@ -165,7 +166,7 @@ fake_bin="$test_dir/bin"
 record_dir="$test_dir/records"
 missing_dir="$test_dir/missing"
 mkdir -p "$home_dir/.config/aagent" "$home_dir/.gemini" "$home_dir/.factory" "$fake_bin" "$record_dir"
-for provider in claude codex opencode copilot amp gemini agent droid; do
+for provider in claude codex opencode copilot amp gemini agent goose droid; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"
 done
@@ -195,6 +196,7 @@ clear_selection_case() {
     export AAGENT_GEMINI_BIN="$missing_dir/gemini"
     export AAGENT_AMP_BIN="$missing_dir/amp"
     export AAGENT_CURSOR_BIN="$missing_dir/agent"
+    export AAGENT_GOOSE_BIN="$missing_dir/goose"
     export AAGENT_DROID_BIN="$missing_dir/droid"
     export AAGENT_FAKE_VERSION_STDOUT='2026.07.23-e383d2b'
     export AAGENT_FAKE_HELP_STDOUT='Usage: agent Start the Cursor Agent --print status'
@@ -303,6 +305,43 @@ run_wrapper "$test_dir/cursor-local-allowed" --allow-local true "say hello"
 assert_equals "$AAGENT_TEST_STATUS" 0 "allowed Cursor local route failed"
 find "$record_dir" -name 'agent.run.*.record' -print -quit | grep -q . || \
     fail "allowed Cursor local route did not run"
+
+clear_selection_case
+export AAGENT_GOOSE_BIN="$fake_bin/goose"
+export AAGENT_CODEX_BIN="$fake_bin/codex"
+export GOOSE_PROVIDER='chatgpt_codex'
+export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}}'
+run_wrapper "$test_dir/goose-included" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Goose included-account scenario failed"
+find "$record_dir" -name 'goose.run.*.record' -print -quit | grep -q . || \
+    fail "Goose ChatGPT account did not beat API-only Codex"
+assert_contains "$(<"$test_dir/goose-included.stderr")" \
+    "using goose (included_account, ChatGPT account via Goose; higher funding class (included_account))" \
+    "Goose selection notice differs"
+
+clear_selection_case
+export AAGENT_GOOSE_BIN="$fake_bin/goose"
+export CODEX_COMMAND="$fake_bin/codex"
+export GOOSE_PROVIDER='codex-acp'
+export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro"},"requiresOpenaiAuth":true}}'
+run_wrapper "$test_dir/goose-inherits-codex" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "Goose Codex-inheritance scenario failed"
+find "$record_dir" -name 'goose.run.*.record' -print -quit | grep -q . || \
+    fail "Goose did not inherit Codex subscription funding"
+
+clear_selection_case
+export AAGENT_GOOSE_BIN="$fake_bin/goose"
+export GOOSE_PROVIDER='ollama'
+run_wrapper "$test_dir/goose-local-blocked" "say hello"
+assert_equals "$AAGENT_TEST_STATUS" "$AAGENT_EXIT_UNAVAILABLE" "Goose local route bypassed allow-local"
+[[ ! -e "$record_dir/run.count" ]] || fail "blocked Goose local route received the prompt"
+run_wrapper "$test_dir/goose-local-allowed" --allow-local true "say hello"
+assert_equals "$AAGENT_TEST_STATUS" 0 "allowed Goose local route failed"
+find "$record_dir" -name 'goose.run.*.record' -print -quit | grep -q . || \
+    fail "allowed Goose local route did not run"
+if find "$record_dir" -name 'goose.probe.*.record' -print -quit | grep -q .; then
+    fail "Goose selection invoked info --check or another active probe"
+fi
 
 clear_selection_case
 export AAGENT_DROID_BIN="$fake_bin/droid"

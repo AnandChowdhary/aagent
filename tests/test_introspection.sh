@@ -35,8 +35,9 @@ mkdir -p "$home_dir/.config/aagent" "$home_dir/.factory" "$fake_bin" "$record_di
 cp "$fake_provider" "$fake_bin/codex"
 cp "$fake_provider" "$fake_bin/copilot"
 cp "$fake_provider" "$fake_bin/agent"
+cp "$fake_provider" "$fake_bin/goose"
 cp "$fake_provider" "$fake_bin/droid"
-chmod +x "$fake_bin/codex" "$fake_bin/copilot" "$fake_bin/agent" "$fake_bin/droid"
+chmod +x "$fake_bin/codex" "$fake_bin/copilot" "$fake_bin/agent" "$fake_bin/goose" "$fake_bin/droid"
 
 export HOME="$home_dir"
 export XDG_CONFIG_HOME="$home_dir/.config"
@@ -68,6 +69,7 @@ clear_case() {
     unset COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS COPILOT_MODEL
     unset COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
     unset CURSOR_API_KEY AAGENT_FAKE_CURSOR_STATUS_STDOUT AAGENT_FAKE_CURSOR_STATUS_STATUS
+    unset GOOSE_PROVIDER GOOSE_PROVIDER__API_KEY OLLAMA_HOST CODEX_COMMAND CLAUDE_CODE_COMMAND CURSOR_AGENT_COMMAND
     unset FACTORY_API_KEY
     rm -f "$home_dir/.factory/settings.json" "$home_dir/.factory/settings.local.json"
     unset AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
@@ -172,6 +174,25 @@ assert_contains "$cursor_doctor_output" "command: agent --print --output-format 
 assert_contains "$cursor_doctor_output" "explicitly forces" "Cursor doctor omitted safety caveat"
 assert_equals "$(<"$record_dir/probe.count")" 4 "Cursor doctor probe count differs"
 [[ ! -e "$record_dir/run.count" ]] || fail "Cursor doctor launched a model"
+
+clear_case
+export AAGENT_GOOSE_BIN="$fake_bin/goose"
+export GOOSE_PROVIDER='chatgpt_codex'
+export AAGENT_FAKE_VERSION_STDOUT='1.45.0'
+run_wrapper "$test_dir/goose-doctor" doctor goose
+assert_equals "$AAGENT_TEST_STATUS" 0 "Goose doctor failed"
+goose_doctor_output="$(<"$test_dir/goose-doctor.stdout")"
+assert_contains "$goose_doctor_output" "provider: goose" "Goose doctor omitted provider"
+assert_contains "$goose_doctor_output" "tier: tier2" "Goose doctor omitted tier"
+assert_contains "$goose_doctor_output" "version: 1.45.0" "Goose doctor omitted safe version"
+assert_contains "$goose_doctor_output" "authentication: ready" "Goose doctor omitted readiness"
+assert_contains "$goose_doctor_output" "funding: included_account" "Goose doctor omitted inherited funding"
+assert_contains "$goose_doctor_output" "command: goose run --text PROMPT" "Goose doctor omitted command"
+assert_contains "$goose_doctor_output" "never enables auto approval" "Goose doctor omitted safety caveat"
+assert_equals "$(<"$record_dir/probe.count")" 1 "Goose doctor ran more than its version probe"
+grep -R -F 'arg.0.hex=2d2d76657273696f6e' "$record_dir"/goose.probe.*.record >/dev/null || \
+    fail "Goose doctor ran an unexpected active probe"
+[[ ! -e "$record_dir/run.count" ]] || fail "Goose doctor launched a model"
 
 clear_case
 export AAGENT_DROID_BIN="$fake_bin/droid"

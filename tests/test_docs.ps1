@@ -11,6 +11,7 @@ $ledgerPath = Join-Path $projectRoot "TODO.md"
 $copilotResearchPath = Join-Path $projectRoot "docs/research/copilot-cli-2026-08-05.md"
 $cursorResearchPath = Join-Path $projectRoot "docs/research/cursor-cli-2026-08-05.md"
 $droidResearchPath = Join-Path $projectRoot "docs/research/factory-droid-2026-08-05.md"
+$gooseResearchPath = Join-Path $projectRoot "docs/research/goose-cli-2026-08-05.md"
 $adapterSpecPath = Join-Path $projectRoot "docs/spec/adapters.md"
 $probeSpecPath = Join-Path $projectRoot "docs/spec/probes.md"
 $securitySpecPath = Join-Path $projectRoot "docs/spec/security.md"
@@ -29,6 +30,7 @@ $ledger = [IO.File]::ReadAllText($ledgerPath, $utf8)
 $copilotResearch = [IO.File]::ReadAllText($copilotResearchPath, $utf8)
 $cursorResearch = [IO.File]::ReadAllText($cursorResearchPath, $utf8)
 $droidResearch = [IO.File]::ReadAllText($droidResearchPath, $utf8)
+$gooseResearch = [IO.File]::ReadAllText($gooseResearchPath, $utf8)
 $adapterSpec = [IO.File]::ReadAllText($adapterSpecPath, $utf8)
 $probeSpec = [IO.File]::ReadAllText($probeSpecPath, $utf8)
 $securitySpec = [IO.File]::ReadAllText($securitySpecPath, $utf8)
@@ -143,6 +145,35 @@ Assert-DocsContains $securitySpec '`--skip-permissions-unsafe`' `
     "Security documentation omitted Droid permission bypass"
 Assert-DocsContains $ledger '- [x] **P12A-05 Revalidate and implement Factory Droid.**' `
     "Implementation ledger does not mark Droid complete"
+
+$gooseResearchContract = @(
+    "Status: Normative implementation input for P12B-01",
+    "Goose ``1.45.0``",
+    "90c50d653d7fd978ec5d436b548eca8613dc2d26d028b486b7c52271267ec500",
+    "goose run --text PROMPT",
+    "active_provider",
+    "goose info --check",
+    "No unresolved interface question blocks P12B-01"
+)
+foreach ($evidence in $gooseResearchContract) {
+    Assert-DocsContains $gooseResearch $evidence "Goose revalidation omitted $evidence"
+}
+
+$gooseImplementationContract = @(
+    'Goose (`goose`)',
+    'goose run --text PROMPT',
+    'goose run --instructions -',
+    'AAGENT_GOOSE_BIN',
+    'GOOSE_PROVIDER',
+    'GOOSE_MODE',
+    'secrets.yaml'
+)
+foreach ($evidence in $gooseImplementationContract) {
+    Assert-DocsContains ($readme + $adapterSpec + $probeSpec + $securitySpec) $evidence `
+        "Goose implementation documentation omitted $evidence"
+}
+Assert-DocsContains $ledger '- [x] **P12B-01 Revalidate and implement Goose.**' `
+    "Implementation ledger does not mark Goose complete"
 
 $helpContract = @(
     "aagent [OPTIONS] [PROMPT...]",

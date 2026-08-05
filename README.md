@@ -175,7 +175,7 @@ changed files or spent tokens.
 ## Supported providers
 
 The first release's Tier 1 adapters and the implemented Tier 2 Copilot, Cursor,
-and Factory Droid adapters are supported for real runs:
+Factory Droid, and Goose adapters are supported for real runs:
 
 | Provider | One-shot command | Per-run model | Passive local evidence | Important native behavior |
 | --- | --- | --- | --- | --- |
@@ -187,11 +187,14 @@ and Factory Droid adapters are supported for real runs:
 | [Amp](https://ampcode.com/manual) (`amp`) | `amp --execute` | not supported | account-token presence only | Amp documents that it uses tools without asking by default. Omitting an unsafe flag does not make it read-only. |
 | [Cursor CLI](https://docs.cursor.com/en/cli/overview) (`cursor`) | `agent --print --output-format text PROMPT` | `--model` | `status --format json` or `CURSOR_API_KEY` presence | The primary executable is `agent`, with `cursor-agent` as a legacy fallback. `aagent` validates Cursor's version/help signature to prevent recursion and never adds force, yolo, trust, MCP approval, or sandbox flags. |
 | [Factory Droid](https://docs.factory.ai/droid-exec/overview) (`droid`) | `droid exec PROMPT` | `--model` | selected documented settings plus `FACTORY_API_KEY` presence | Read-only autonomy is the native default; Spec Mode is opt-in. `aagent` never adds `--use-spec`, `--auto`, or `--skip-permissions-unsafe`. |
+| [Goose](https://github.com/aaif-goose/goose) (`goose`) | `goose run --text PROMPT` | `--model` | selected provider configuration and inherited passive evidence | Goose provider routes inherit safe Claude, Codex, Gemini, Cursor, Copilot, or Amp evidence. `aagent` never sets `GOOSE_MODE`, changes extensions, or invokes the model-sending `info --check`. |
 
 Installations are discovered from `PATH`. Advanced users can override an exact
 executable with `AAGENT_CODEX_BIN`, `AAGENT_CLAUDE_BIN`,
 `AAGENT_OPENCODE_BIN`, `AAGENT_COPILOT_BIN`, `AAGENT_GEMINI_BIN`,
 `AAGENT_AMP_BIN`, `AAGENT_CURSOR_BIN`, or `AAGENT_DROID_BIN`.
+`AAGENT_GOOSE_BIN` overrides Goose. Nested Goose CLI/ACP routes may use the
+corresponding provider override for passive inspection without launching it.
 
 `aagent providers` also lists planned adapters as unsupported. Cursor is
 reported separately as provider `cursor` even though its installed executable
@@ -318,8 +321,8 @@ through without remapping.
 GitHub Actions runs the complete Bash suite on Linux, macOS, and Windows Git
 Bash, plus the complete PowerShell suite on Windows. A separate weekly
 credential-free workflow installs every currently supported CLI, including
-Copilot, Cursor, and Factory Droid, and verifies only documented help/version and non-secret
-status-help command surfaces.
+Copilot, Cursor, Factory Droid, and Goose, and verifies only documented
+help/version and non-secret status-help command surfaces.
 
 ## Safety boundary and limitations
 

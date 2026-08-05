@@ -88,6 +88,7 @@ model_for() {
         opencode) printf 'provider/model\n' ;;
         copilot) printf 'copilot-model\n' ;;
         cursor) printf 'cursor-model\n' ;;
+        goose) printf 'goose-model\n' ;;
         droid) printf 'droid-model\n' ;;
         gemini) printf 'gemini-model\n' ;;
         amp) printf '\n' ;;
@@ -103,6 +104,7 @@ display_name_for() {
         amp) printf 'Amp\n' ;;
         gemini) printf 'Gemini CLI\n' ;;
         cursor) printf 'Cursor CLI\n' ;;
+        goose) printf 'Goose\n' ;;
         droid) printf 'Factory Droid\n' ;;
     esac
 }
@@ -127,6 +129,9 @@ prompt_arguments_for() {
             ;;
         cursor)
             EXPECTED_ARGUMENTS=("--print" "--output-format" "text" "--model" "$model" "--native-flag" "-leading-value" "$prompt")
+            ;;
+        goose)
+            EXPECTED_ARGUMENTS=("run" "--model" "$model" "--native-flag" "-leading-value" "--text" "$prompt")
             ;;
         droid)
             EXPECTED_ARGUMENTS=("exec" "--model" "$model" "--native-flag" "-leading-value" "$prompt")
@@ -159,6 +164,7 @@ stdin_arguments_for() {
             EXPECTED_ARGUMENTS=("--print" "--output-format" "text" "$stdin_data")
             EXPECTED_STDIN=""
             ;;
+        goose) EXPECTED_ARGUMENTS=("run" "--instructions" "-") ;;
         droid) EXPECTED_ARGUMENTS=("exec") ;;
         amp) EXPECTED_ARGUMENTS=("--execute") ;;
         gemini) EXPECTED_ARGUMENTS=() ;;
@@ -184,6 +190,10 @@ both_arguments_for() {
         cursor)
             EXPECTED_ARGUMENTS=("--print" "--output-format" "text" "$prompt"$'\n\n--- stdin context ---\n'"$stdin_data")
             EXPECTED_STDIN=""
+            ;;
+        goose)
+            EXPECTED_ARGUMENTS=("run" "--instructions" "-")
+            EXPECTED_STDIN="$prompt"$'\n\n--- stdin context ---\n'"$stdin_data"
             ;;
         droid) EXPECTED_ARGUMENTS=("exec" "$prompt") ;;
         amp) EXPECTED_ARGUMENTS=("--execute" "$prompt") ;;
@@ -211,7 +221,7 @@ expected_work_dir="$(cd "$work_dir" && pwd -P)"
 adapter_environment_names=(
     AAGENT_PROVIDER AAGENT_AUTH_POLICY AAGENT_PRIORITY AAGENT_ALLOW_LOCAL
     AAGENT_CLAUDE_BIN AAGENT_CODEX_BIN AAGENT_OPENCODE_BIN AAGENT_COPILOT_BIN
-    AAGENT_AMP_BIN AAGENT_GEMINI_BIN AAGENT_CURSOR_BIN AAGENT_DROID_BIN
+    AAGENT_AMP_BIN AAGENT_GEMINI_BIN AAGENT_CURSOR_BIN AAGENT_GOOSE_BIN AAGENT_DROID_BIN
     AAGENT_FAKE_INVOCATION_KIND AAGENT_FAKE_PROBE_STDOUT AAGENT_FAKE_PROBE_STDERR
     AAGENT_FAKE_PROBE_STATUS AAGENT_FAKE_PROBE_DELAY AAGENT_FAKE_PROBE_BYTES
     AAGENT_FAKE_VERSION_STDOUT AAGENT_FAKE_HELP_STDOUT CURSOR_API_KEY FACTORY_API_KEY
@@ -225,12 +235,13 @@ adapter_environment_names=(
     COPILOT_PROVIDER_API_KEY COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS
     COPILOT_MODEL COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL
     COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
+    GOOSE_PROVIDER GOOSE_PATH_ROOT GOOSE_PROVIDER__API_KEY
 )
 for environment_name in "${adapter_environment_names[@]}"; do
     unset "$environment_name" 2>/dev/null || true
 done
 
-providers=(claude codex opencode copilot amp gemini cursor droid)
+providers=(claude codex opencode copilot amp gemini cursor goose droid)
 for provider in "${providers[@]}"; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"

@@ -75,12 +75,16 @@ record_dir="$test_dir/records"
 trap_bin="$test_dir/trap-bin"
 marker="$test_dir/credential-store-accessed"
 mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.gemini" "$HOME/.factory" "$fake_bin" "$record_dir" "$trap_bin"
-for provider in claude codex opencode agent; do
+for provider in claude codex opencode agent goose; do
     cp "$fake_provider" "$fake_bin/$provider"
     chmod +x "$fake_bin/$provider"
 done
 export PATH="$trap_bin:$fake_bin:$PATH"
 export AAGENT_FAKE_RECORD_DIR="$record_dir"
+goose_root="$test_dir/goose-root"
+goose_config_dir="$goose_root/config"
+export GOOSE_PATH_ROOT="$goose_root"
+mkdir -p "$goose_config_dir/custom_providers"
 
 for command_name in security secret-tool cmdkey api-key-helper; do
     printf '#!/usr/bin/env bash\nprintf "called" >%q\n' "$marker" >"$trap_bin/$command_name"
@@ -125,7 +129,12 @@ clear_probe_case() {
         COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE COPILOT_PROVIDER_API_KEY \
         COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_HEADERS COPILOT_MODEL \
         COPILOT_PROVIDER_MODEL_ID COPILOT_PROVIDER_WIRE_MODEL \
-        COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
+        COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN \
+        GOOSE_PROVIDER GOOSE_PROVIDER__API_KEY OLLAMA_HOST TEST_GOOSE_API_KEY
+    if [[ -n "${goose_config_dir-}" ]]; then
+        rm -rf -- "$goose_config_dir"
+        mkdir -p "$goose_config_dir/custom_providers"
+    fi
 }
 
 clear_probe_case
@@ -362,6 +371,69 @@ cursor_json_hex="$(hex_string json)"
 grep -R -F "arg.0.hex=$cursor_status_hex" "$record_dir"/agent.probe.*.record >/dev/null || fail "Cursor status command was not recorded"
 grep -R -F "arg.1.hex=$cursor_format_hex" "$record_dir"/agent.probe.*.record >/dev/null || fail "Cursor status format flag differs"
 grep -R -F "arg.2.hex=$cursor_json_hex" "$record_dir"/agent.probe.*.record >/dev/null || fail "Cursor status JSON value differs"
+
+clear_probe_case
+goose_probe_count_before="$(<"$record_dir/probe.count")"
+aagent_probe_provider goose "$fake_bin/goose"
+assert_probe goose unknown unknown 0 "Unknown" goose_provider_not_selected none skipped_no_passive
+assert_equals "$(<"$record_dir/probe.count")" "$goose_probe_count_before" "Goose ran an active provider probe without a selected provider"
+
+clear_probe_case
+export GOOSE_PROVIDER='anthropic'
+export GOOSE_PROVIDER__API_KEY='seeded-secret-token'
+aagent_probe_provider goose "$fake_bin/goose"
+assert_probe goose ready payg_byok 2 "API provider via Goose" goose_api_provider_selected environment environment_only
+assert_equals "$AAGENT_PROBE_SHADOWING_VARIABLES" "GOOSE_PROVIDER__API_KEY" "Goose API-key evidence differs"
+
+clear_probe_case
+printf '%s\n' 'active_provider: ollama' >"$goose_config_dir/config.yaml"
+aagent_probe_provider goose "$fake_bin/goose"
+assert_probe goose ready local 2 "Local provider via Goose" goose_local_provider_selected settings success
+
+clear_probe_case
+printf '%s\n' 'active_provider: ollama' >"$goose_config_dir/config.yaml"
+export OLLAMA_HOST='https://ollama.example.test'
+aagent_probe_provider goose "$fake_bin/goose"
+assert_probe goose ready unknown 2 "Remote self-hosted Goose provider" goose_remote_local_provider_selected settings success
+
+clear_probe_case
+printf '%s\n' 'active_provider: chatgpt_codex' >"$goose_config_dir/config.yaml"
+aagent_probe_provider goose "$fake_bin/goose"
+assert_probe goose ready included_account 2 "ChatGPT account via Goose" goose_chatgpt_codex_selected settings success
+
+clear_probe_case
+printf '%s\n' 'active_provider: codex-acp' >"$goose_config_dir/config.yaml"
+export AAGENT_CODEX_BIN="$fake_bin/codex"
+export CODEX_API_KEY='seeded-secret-token'
+export AAGENT_FAKE_CODEX_APP_SERVER_STDOUT='{"id":1,"result":{"account":{"type":"chatgpt","planType":"pro"},"requiresOpenaiAuth":true}}'
+aagent_probe_provider goose "$fake_bin/goose"
+assert_probe goose ready included_confirmed 4 "ChatGPT Pro" codex_chatgpt_account selected_provider/app_server success
+assert_equals "$AAGENT_PROBE_UNDERLYING_PROVIDER" "codex" "Goose did not retain its funding inheritance source"
+export AAGENT_EFFECTIVE_AUTH_POLICY='prefer-included'
+aagent_project_probe_for_auth_policy goose
+assert_equals "$AAGENT_AUTH_ENV_UNSET_NAME" "CODEX_API_KEY" "Goose did not inherit Codex API-key suppression"
+
+clear_probe_case
+printf '%s\n' 'active_provider: custom_loopback' >"$goose_config_dir/config.yaml"
+printf '%s' '{"name":"custom_loopback","base_url":"http://127.0.0.1:8080/v1","api_key_env":"","requires_auth":false,"secret":"seeded-secret-token"}' >"$goose_config_dir/custom_providers/custom_loopback.json"
+aagent_probe_provider goose "$fake_bin/goose"
+assert_probe goose ready local 2 "Local custom Goose provider" goose_custom_provider_local selected_provider success
+
+clear_probe_case
+printf '%s\n' 'active_provider: custom_remote' >"$goose_config_dir/config.yaml"
+printf '%s' '{"name":"custom_remote","base_url":"https://models.example.test/v1","api_key_env":"TEST_GOOSE_API_KEY","requires_auth":true,"secret":"seeded-secret-token"}' >"$goose_config_dir/custom_providers/custom_remote.json"
+export TEST_GOOSE_API_KEY='seeded-secret-token'
+aagent_probe_provider goose "$fake_bin/goose"
+assert_probe goose ready payg_byok 2 "Goose BYOK provider" goose_custom_provider_byok selected_provider success
+assert_equals "$AAGENT_PROBE_SHADOWING_VARIABLES" "TEST_GOOSE_API_KEY" "Goose custom-provider key evidence differs"
+
+clear_probe_case
+printf '%s\n' 'active_provider: [malformed seeded-secret-token]' >"$goose_config_dir/config.yaml"
+aagent_probe_provider goose "$fake_bin/goose"
+assert_probe goose unknown unknown 0 "Unknown" goose_provider_config_unavailable selected_provider schema_failure
+
+goose_records_before="$(find "$record_dir" -name 'goose.probe.*.record' | wc -l | tr -d ' ')"
+assert_equals "$goose_records_before" "0" "Goose probe invoked goose info --check or another active command"
 
 clear_probe_case
 rm -f "$HOME/.factory/settings.json" "$HOME/.factory/settings.local.json"

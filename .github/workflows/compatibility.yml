@@ -16,13 +16,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [claude, codex, opencode, copilot, amp, gemini, cursor, droid]
+        provider: [claude, codex, opencode, copilot, amp, gemini, cursor, droid, goose]
 
     steps:
       - uses: actions/checkout@v7.0.0
 
       - uses: actions/setup-node@v6
-        if: matrix.provider != 'amp' && matrix.provider != 'cursor'
+        if: matrix.provider != 'amp' && matrix.provider != 'cursor' && matrix.provider != 'goose'
         with:
           node-version: 24
           package-manager-cache: false
@@ -40,6 +40,20 @@ jobs:
             copilot) npm install --global @github/copilot@latest ;;
             gemini) npm install --global @google/gemini-cli@latest ;;
             droid) npm install --global droid@latest ;;
+            goose)
+              archive="$RUNNER_TEMP/goose-x86_64-unknown-linux-gnu.tar.gz"
+              bin_dir="$RUNNER_TEMP/goose-bin"
+              curl --fail --silent --show-error --location \
+                --output "$archive" \
+                https://github.com/aaif-goose/goose/releases/download/v1.45.0/goose-x86_64-unknown-linux-gnu.tar.gz
+              printf '%s  %s\n' \
+                'e0db638ac437ca0a60b0c1622f45322608d228d1a285214c3bf48fd9763346a5' \
+                "$archive" | sha256sum --check --strict
+              mkdir -p "$bin_dir"
+              tar -xzf "$archive" -C "$bin_dir"
+              printf '%s\n' "$bin_dir" >>"$GITHUB_PATH"
+              export PATH="$bin_dir:$PATH"
+              ;;
             amp)
               curl --fail --silent --show-error --location https://ampcode.com/install.sh | bash
               printf '%s\n' "$HOME/.local/bin" >>"$GITHUB_PATH"

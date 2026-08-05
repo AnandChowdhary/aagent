@@ -63,6 +63,10 @@ failure.
 - Factory Droid prompt/stdin separation, account-key funding ceiling, bounded
   selected custom-model settings, secret-field rejection, corrected read-only
   autonomy default, and local-endpoint gating; and
+- Goose prompt/stdin planning, model/native option forwarding, selected-
+  provider inheritance, account/BYOK/local/custom/unknown routing, nested auth
+  policy projection, configuration bounds, secret-store exclusion, and proof
+  that neither `GOOSE_MODE` nor `info --check` is generated; and
 - `--quiet` and `--dry-run` behavior.
 
 Child authentication policy fixtures additionally verify exact Claude and
@@ -113,6 +117,8 @@ Cursor's official compatibility job runs on Linux because its installer
 supports macOS/Linux and documents Windows through WSL; PowerShell behavior is
 covered with deterministic fixtures on Windows. Factory Droid's job installs
 the current official `droid` npm package and validates only version and help.
+Goose's job installs the pinned current stable official archive, verifies its
+published SHA-256 checksum, and validates only version and `run --help`.
 
 ## Documentation contract tests
 

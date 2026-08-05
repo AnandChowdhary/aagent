@@ -8,8 +8,8 @@ Lists every known adapter in stable registry order with its discovery or
 passive authentication status, funding class, selected flag, and selection or
 diagnostic reason without logging in or sending a model request. Cursor's
 documented status command may contact its account endpoint for enrichment;
-Factory Droid is inspected only through settings allowlists and environment
-presence:
+Factory Droid and Goose are inspected only through configuration allowlists
+and environment presence:
 
 ```text
 ID        STATUS   FUNDING               SELECTED  REASON
@@ -48,7 +48,9 @@ Doctor must not open a browser, begin login, display credentials, or send a
 model request. Cursor diagnostics may use its documented bounded status
 command and discard the raw response. Droid diagnostics never invoke
 interactive `/status` or `/limits` and never read browser tokens or custom
-model API keys. With a provider argument, an unknown provider is a usage error;
+model API keys. Goose diagnostics never invoke `info --check`, open its keyring
+or secrets file, or launch an underlying CLI/ACP provider. With a provider
+argument, an unknown provider is a usage error;
 a known but missing provider is reported diagnostically rather than launched.
 Provider-scoped doctor limits provider subprocesses to the requested adapter
 and deliberately does not perform global automatic selection.

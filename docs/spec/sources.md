@@ -42,9 +42,12 @@ used for the interface and selection survey.
   [permissions](https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/allowing-tools),
   [v1.0.78 release](https://github.com/github/copilot-cli/releases/tag/v1.0.78),
   [billing usage API](https://docs.github.com/en/rest/billing/usage)
-- Goose: [running tasks](https://goose-docs.ai/docs/guides/running-tasks/),
-  [headless tutorial](https://goose-docs.ai/docs/tutorials/headless-goose/),
-  [providers](https://goose-docs.ai/docs/getting-started/providers/)
+- Goose: [AAIF repository](https://github.com/aaif-goose/goose),
+  [v1.45.0 headless tutorial](https://github.com/aaif-goose/goose/blob/v1.45.0/documentation/docs/tutorials/headless-goose.md),
+  [environment variables](https://github.com/aaif-goose/goose/blob/v1.45.0/documentation/docs/guides/environment-variables.md),
+  [providers](https://github.com/aaif-goose/goose/blob/v1.45.0/documentation/docs/getting-started/providers.md),
+  [CLI source](https://github.com/aaif-goose/goose/blob/v1.45.0/crates/goose-cli/src/cli.rs), and
+  [2026-08-05 revalidation](../research/goose-cli-2026-08-05.md)
 - Qwen Code: [headless mode](https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/headless.md),
   [authentication](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/auth/)
 - Kimi Code: [command reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-command),

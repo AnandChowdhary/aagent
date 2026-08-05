@@ -180,10 +180,11 @@ file existence alone is low-confidence evidence and cannot establish a plan.
 | Amp | Installed/account state and `amp usage` when explicitly requested | `AMP_API_KEY` is an Amp account credential, not an Anthropic key. Credential shape cannot distinguish subscription, linked ChatGPT access, credits, or pay-as-you-go, so passive funding is often `unknown`. |
 | Cursor CLI | `agent status --format json`, reduced to three authentication booleans and an optional endpoint class; `CURSOR_API_KEY` presence is a lower-confidence fallback | Authenticated vendor accounts are at most `included_account`; local endpoints require explicit opt-in, custom endpoints are funding-unknown, and plan or remaining allowance is never inferred. The status command may perform account enrichment. |
 | Factory Droid | `FACTORY_API_KEY` presence plus bounded documented selected-model and custom-model endpoint settings; no CLI account probe | The key proves only a Factory account path and remains funding-unknown. A selected remote custom endpoint is `payg_byok`; loopback is opt-in `local`. Browser login, plan, credits, and allowance remain unknown. |
+| Goose | bounded `active_provider`/`GOOSE_PROVIDER` plus allowlisted custom-provider route fields; no CLI command | Native CLI/ACP routes inherit the underlying adapter's passive funding and auth policy. Known account providers are included, loopback is opt-in local, direct API routes are BYOK, and unknown routes remain unknown. `goose info --check` is prohibited. |
 
 Additional adapters may classify only documented provider/model paths.
-Examples include Qwen's Coding Plan endpoint as included, Goose with Ollama as
-local, and Cline's `openai-codex` provider as subscription-backed. Cursor,
+Examples include Qwen's Coding Plan endpoint as included and Cline's
+`openai-codex` provider as subscription-backed. Cursor,
 Kimi, Crush, and Vibe account keys must
 not be treated as direct BYOK solely because they are called API keys.
 

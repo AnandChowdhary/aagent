@@ -53,7 +53,7 @@ function Get-AagentAdapterRegistry {
         New-AagentAdapter "copilot" "GitHub Copilot CLI" "copilot" "AAGENT_COPILOT_BIN" "tier2" "copilot --prompt PROMPT --silent --no-ask-user" "argument" "--model" "jsonl" "resume,continue" "Native tool approvals remain in force; aagent adds no allow-all or yolo flag." "environment precedence only" 4 4
         New-AagentAdapter "gemini" "Gemini CLI" "gemini" "AAGENT_GEMINI_BIN" "tier1" "gemini --prompt PROMPT" "argument-and-stdin" "--model" "json,stream-json" "resume" "Approval and sandbox modes are native; never add yolo." "settings selectedType" 5 5
         New-AagentAdapter "cline" "Cline CLI" "cline" "AAGENT_CLINE_BIN" "planned" "cline PROMPT" "argument" "--model" "ndjson" "unknown" "Headless use documents automatic approval behavior." "unknown" 6 6
-        New-AagentAdapter "goose" "Goose" "goose" "AAGENT_GOOSE_BIN" "planned" "goose run --text PROMPT" "argument" "provider-native" "json,stream-json" "unknown" "Headless automation may use GOOSE_MODE=auto only by user choice." "provider metadata" 7 7
+        New-AagentAdapter "goose" "Goose" "goose" "AAGENT_GOOSE_BIN" "tier2" "goose run --text PROMPT" "argument-and-stdin" "--model" "json,stream-json" "resume,name,no-session" "Native GOOSE_MODE remains user-controlled; aagent never enables auto approval." "selected provider config; never info --check" 7 7
         New-AagentAdapter "aider" "Aider" "aider" "AAGENT_AIDER_BIN" "planned" "aider --message PROMPT" "argument" "--model" "none" "unknown" "Automatically commits changes by default." "model metadata" 8 8
         New-AagentAdapter "qwen" "Qwen Code" "qwen" "AAGENT_QWEN_BIN" "planned" "qwen --prompt PROMPT" "argument-and-stdin" "--model" "json,stream-json" "resume" "Approval modes and budgets remain native." "auth selection" 9 9
         New-AagentAdapter "amp" "Amp" "amp" "AAGENT_AMP_BIN" "tier1" "amp --execute PROMPT" "argument-and-stdin" "none" "stream-json" "continue" "Uses tools without asking by default; no portable read-only promise." "unknown" 10 10
@@ -340,6 +340,7 @@ function New-AagentProbeResult([string] $Provider) {
         ShadowingVariables = [string[]] @()
         Source = "none"
         ProbeStatus = "not_run"
+        UnderlyingProvider = ""
     }
 }
 
@@ -1125,6 +1126,332 @@ function Invoke-AagentCursorProbe([string] $Executable) {
     return $result
 }
 
+function Get-AagentGooseConfigLocation {
+    $pathRoot = [Environment]::GetEnvironmentVariable("GOOSE_PATH_ROOT", "Process")
+    if (-not [string]::IsNullOrEmpty($pathRoot)) {
+        if (-not [IO.Path]::IsPathFullyQualified($pathRoot)) {
+            return [pscustomobject] @{ Directory = ""; Path = ""; Status = "invalid_configuration" }
+        }
+        $directory = [IO.Path]::Combine($pathRoot, "config")
+        return [pscustomobject] @{
+            Directory = $directory
+            Path = [IO.Path]::Combine($directory, "config.yaml")
+            Status = "success"
+        }
+    }
+
+    $directory = ""
+    if ($IsWindows) {
+        $appData = [Environment]::GetEnvironmentVariable("APPDATA", "Process")
+        if (-not [string]::IsNullOrEmpty($appData)) {
+            $directory = [IO.Path]::Combine($appData, "Block", "goose", "config")
+        }
+    } elseif ($IsMacOS) {
+        $homeDirectory = [Environment]::GetEnvironmentVariable("HOME", "Process")
+        if (-not [string]::IsNullOrEmpty($homeDirectory)) {
+            $directory = [IO.Path]::Combine($homeDirectory, "Library", "Application Support", "Block", "goose")
+        }
+    } else {
+        $xdgConfigHome = [Environment]::GetEnvironmentVariable("XDG_CONFIG_HOME", "Process")
+        $homeDirectory = [Environment]::GetEnvironmentVariable("HOME", "Process")
+        if (-not [string]::IsNullOrEmpty($xdgConfigHome)) {
+            $directory = [IO.Path]::Combine($xdgConfigHome, "goose")
+        } elseif (-not [string]::IsNullOrEmpty($homeDirectory)) {
+            $directory = [IO.Path]::Combine($homeDirectory, ".config", "goose")
+        }
+    }
+    return [pscustomobject] @{
+        Directory = $directory
+        Path = if ([string]::IsNullOrEmpty($directory)) { "" } else { [IO.Path]::Combine($directory, "config.yaml") }
+        Status = "success"
+    }
+}
+
+function ConvertFrom-AagentGooseYamlScalar([string] $Value) {
+    $value = $Value.Trim([char[]] @(' ', "`t"))
+    $match = [regex]::Match($value, '^(?:"([A-Za-z0-9._-]+)"|''([A-Za-z0-9._-]+)''|([A-Za-z0-9._-]+))(?:\s+#.*)?$')
+    if (-not $match.Success) {
+        return [pscustomobject] @{ Success = $false; Value = "" }
+    }
+    foreach ($index in 1..3) {
+        if ($match.Groups[$index].Success) {
+            return [pscustomobject] @{ Success = $true; Value = $match.Groups[$index].Value }
+        }
+    }
+    return [pscustomobject] @{ Success = $false; Value = "" }
+}
+
+function Get-AagentGooseSelectedProvider {
+    $location = Get-AagentGooseConfigLocation
+    $environment = [Environment]::GetEnvironmentVariables("Process")
+    if ($environment.Contains("GOOSE_PROVIDER")) {
+        $provider = [Environment]::GetEnvironmentVariable("GOOSE_PROVIDER", "Process")
+        if ([string]::IsNullOrEmpty($provider) -or $provider -cnotmatch '^[A-Za-z0-9._-]+$') {
+            return [pscustomobject] @{
+                Provider = ""; Source = "none"; Status = "invalid_configuration"; Location = $location
+            }
+        }
+        return [pscustomobject] @{
+            Provider = $provider; Source = "environment"; Status = "environment_only"; Location = $location
+        }
+    }
+    if ($location.Status -ne "success") {
+        return [pscustomobject] @{ Provider = ""; Source = "none"; Status = $location.Status; Location = $location }
+    }
+    if ([string]::IsNullOrEmpty($location.Path)) {
+        return [pscustomobject] @{ Provider = ""; Source = "none"; Status = "not_found"; Location = $location }
+    }
+
+    $file = Read-AagentProbeFile $location.Path
+    if ($file.Status -ne "success") {
+        $file.Capture = ""
+        return [pscustomobject] @{ Provider = ""; Source = "none"; Status = $file.Status; Location = $location }
+    }
+    $activeProvider = ""
+    $legacyProvider = ""
+    $activeSeen = $false
+    $legacySeen = $false
+    $status = "success"
+    foreach ($line in ($file.Capture -split "`n", 0, [StringSplitOptions]::None)) {
+        $line = $line.TrimEnd("`r")
+        if ($line.Length -gt 4096) { $status = "schema_failure"; break }
+        if ($line -match '^\s') { continue }
+        if ($line.StartsWith("active_provider:", [StringComparison]::Ordinal)) {
+            if ($activeSeen) { $status = "schema_failure"; break }
+            $activeSeen = $true
+            $scalar = ConvertFrom-AagentGooseYamlScalar $line.Substring("active_provider:".Length)
+            if (-not $scalar.Success) { $status = "schema_failure"; break }
+            $activeProvider = $scalar.Value
+        } elseif ($line.StartsWith("GOOSE_PROVIDER:", [StringComparison]::Ordinal)) {
+            if ($legacySeen) { $status = "schema_failure"; break }
+            $legacySeen = $true
+            $scalar = ConvertFrom-AagentGooseYamlScalar $line.Substring("GOOSE_PROVIDER:".Length)
+            if (-not $scalar.Success) { $status = "schema_failure"; break }
+            $legacyProvider = $scalar.Value
+        }
+    }
+    $file.Capture = ""
+    if ($status -ne "success") {
+        return [pscustomobject] @{ Provider = ""; Source = "none"; Status = $status; Location = $location }
+    }
+    $provider = if (-not [string]::IsNullOrEmpty($activeProvider)) { $activeProvider } else { $legacyProvider }
+    if ([string]::IsNullOrEmpty($provider)) {
+        return [pscustomobject] @{ Provider = ""; Source = "none"; Status = "not_found"; Location = $location }
+    }
+    return [pscustomobject] @{ Provider = $provider; Source = "settings"; Status = "success"; Location = $location }
+}
+
+function Get-AagentGooseUnderlyingExecutable(
+    [string] $Executable,
+    [string] $OverrideName,
+    [string] $GooseCommandName = ""
+) {
+    $gooseCommandValue = if ([string]::IsNullOrEmpty($GooseCommandName)) {
+        ""
+    } else {
+        [Environment]::GetEnvironmentVariable($GooseCommandName, "Process")
+    }
+    $overrideValue = [Environment]::GetEnvironmentVariable($OverrideName, "Process")
+    $requested = if (-not [string]::IsNullOrEmpty($gooseCommandValue)) {
+        $gooseCommandValue
+    } elseif (-not [string]::IsNullOrEmpty($overrideValue)) {
+        $overrideValue
+    } else {
+        $Executable
+    }
+    try {
+        $command = Get-Command -Name $requested -CommandType Application, ExternalScript -ErrorAction Stop |
+            Select-Object -First 1
+        $path = if ([string]::IsNullOrEmpty($command.Source)) { $command.Path } else { $command.Source }
+        if (-not [string]::IsNullOrEmpty($path) -and (Test-Path -LiteralPath $path -PathType Leaf)) {
+            return $path
+        }
+    } catch {
+        return ""
+    }
+    return ""
+}
+
+function Invoke-AagentGooseInheritedProbe(
+    [string] $Provider,
+    [string] $Executable,
+    [string] $OverrideName,
+    [string] $GooseCommandName = ""
+) {
+    $path = Get-AagentGooseUnderlyingExecutable $Executable $OverrideName $GooseCommandName
+    if ([string]::IsNullOrEmpty($path)) { return $null }
+    $probe = Invoke-AagentProviderProbe $Provider $path
+    $probe.Provider = "goose"
+    $probe.UnderlyingProvider = $Provider
+    $probe.Source = "selected_provider/$($probe.Source)"
+    return $probe
+}
+
+function Invoke-AagentGooseCustomProviderProbe($Selected) {
+    $result = New-AagentProbeResult "goose"
+    if ($Selected.Provider -cnotmatch '^custom_[A-Za-z0-9_.-]+$') { return $null }
+    $path = [IO.Path]::Combine($Selected.Location.Directory, "custom_providers", "$($Selected.Provider).json")
+    $file = Read-AagentProbeFile $path
+    if ($file.Status -ne "success") {
+        $file.Capture = ""
+        Set-AagentProbeResult $result ready unknown 2 "Custom Goose provider" `
+            goose_custom_provider_unresolved selected_provider $file.Status | Out-Null
+        return $result
+    }
+    $json = ConvertFrom-AagentProbeJson $file.Capture
+    $file.Capture = ""
+    if ($null -eq $json) {
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" `
+            goose_custom_provider_schema_failure selected_provider schema_failure | Out-Null
+        return $result
+    }
+    $baseProperty = $json.PSObject.Properties["base_url"]
+    $keyProperty = $json.PSObject.Properties["api_key_env"]
+    $authProperty = $json.PSObject.Properties["requires_auth"]
+    if (
+        $null -eq $baseProperty -or $baseProperty.Value -isnot [string] -or
+        $null -eq $authProperty -or $authProperty.Value -isnot [bool] -or
+        ($null -ne $keyProperty -and $keyProperty.Value -isnot [string]) -or
+        ($null -ne $keyProperty -and -not [string]::IsNullOrEmpty($keyProperty.Value) -and
+            $keyProperty.Value -cnotmatch '^[A-Z][A-Z0-9_]*$')
+    ) {
+        $json = $null
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" `
+            goose_custom_provider_schema_failure selected_provider schema_failure | Out-Null
+        return $result
+    }
+    $shadowing = @()
+    if ($null -ne $keyProperty -and -not [string]::IsNullOrEmpty($keyProperty.Value) -and
+        (Test-AagentEnvironmentPresent $keyProperty.Value)) {
+        $shadowing = @($keyProperty.Value)
+    }
+    $endpointClass = Get-AagentCursorEndpointClass $baseProperty.Value
+    $requiresAuth = $authProperty.Value
+    $json = $null
+    switch ($endpointClass) {
+        "local" {
+            Set-AagentProbeResult $result ready local 2 "Local custom Goose provider" `
+                goose_custom_provider_local selected_provider success $shadowing | Out-Null
+        }
+        { $_ -in @("custom", "vendor") } {
+            if ($requiresAuth) {
+                Set-AagentProbeResult $result ready payg_byok 2 "Goose BYOK provider" `
+                    goose_custom_provider_byok selected_provider success $shadowing | Out-Null
+            } else {
+                Set-AagentProbeResult $result ready unknown 2 "Custom Goose provider" `
+                    goose_custom_provider_remote selected_provider success $shadowing | Out-Null
+            }
+        }
+        default {
+            Set-AagentProbeResult $result unknown unknown 0 "Unknown" `
+                goose_custom_provider_endpoint_invalid selected_provider invalid_configuration $shadowing | Out-Null
+        }
+    }
+    return $result
+}
+
+function Invoke-AagentGooseProbe {
+    $result = New-AagentProbeResult "goose"
+    $selected = Get-AagentGooseSelectedProvider
+    if ($selected.Status -in @("read_error", "truncated", "schema_failure", "invalid_configuration")) {
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" goose_provider_config_unavailable `
+            selected_provider $selected.Status | Out-Null
+        return $result
+    }
+    if ([string]::IsNullOrEmpty($selected.Provider)) {
+        Set-AagentProbeResult $result unknown unknown 0 "Unknown" goose_provider_not_selected `
+            none skipped_no_passive | Out-Null
+        return $result
+    }
+
+    switch ($selected.Provider) {
+        { $_ -in @("claude-acp", "claude-code") } {
+            $inherited = Invoke-AagentGooseInheritedProbe claude claude AAGENT_CLAUDE_BIN CLAUDE_CODE_COMMAND
+            if ($null -ne $inherited) { return $inherited }
+        }
+        { $_ -in @("codex-acp", "codex") } {
+            $inherited = Invoke-AagentGooseInheritedProbe codex codex AAGENT_CODEX_BIN CODEX_COMMAND
+            if ($null -ne $inherited) { return $inherited }
+        }
+        "gemini-cli" {
+            $inherited = Invoke-AagentGeminiProbe
+            $inherited.Provider = "goose"
+            $inherited.UnderlyingProvider = "gemini"
+            $inherited.Source = "selected_provider/$($inherited.Source)"
+            return $inherited
+        }
+        "cursor-agent" {
+            $inherited = Invoke-AagentGooseInheritedProbe cursor agent AAGENT_CURSOR_BIN CURSOR_AGENT_COMMAND
+            if ($null -ne $inherited) { return $inherited }
+        }
+        "copilot-acp" {
+            $inherited = Invoke-AagentCopilotProbe
+            $inherited.Provider = "goose"
+            $inherited.UnderlyingProvider = "copilot"
+            $inherited.Source = "selected_provider/$($inherited.Source)"
+            return $inherited
+        }
+        "amp-acp" {
+            $inherited = Invoke-AagentAmpProbe
+            $inherited.Provider = "goose"
+            $inherited.UnderlyingProvider = "amp"
+            $inherited.Source = "selected_provider/$($inherited.Source)"
+            return $inherited
+        }
+        "chatgpt_codex" {
+            Set-AagentProbeResult $result ready included_account 2 "ChatGPT account via Goose" `
+                goose_chatgpt_codex_selected $selected.Source $selected.Status | Out-Null
+            return $result
+        }
+        "gemini_oauth" {
+            Set-AagentProbeResult $result ready included_account 2 "Google account via Goose" `
+                goose_gemini_oauth_selected $selected.Source $selected.Status | Out-Null
+            return $result
+        }
+        "github_copilot" {
+            Set-AagentProbeResult $result ready included_account 2 "GitHub Copilot via Goose" `
+                goose_github_copilot_selected $selected.Source $selected.Status | Out-Null
+            return $result
+        }
+        { $_ -in @("ollama", "lmstudio", "atomic_chat", "omlx", "local_inference") } {
+            $endpoint = switch ($selected.Provider) {
+                "ollama" { [Environment]::GetEnvironmentVariable("OLLAMA_HOST", "Process") ?? "http://localhost:11434" }
+                "lmstudio" { [Environment]::GetEnvironmentVariable("LM_STUDIO_HOST", "Process") ?? "http://localhost:1234" }
+                "atomic_chat" { [Environment]::GetEnvironmentVariable("ATOMIC_CHAT_HOST", "Process") ?? "http://localhost:1337" }
+                "omlx" { [Environment]::GetEnvironmentVariable("OMLX_HOST", "Process") ?? "http://localhost:8000" }
+                default { "http://localhost" }
+            }
+            if ([string]::IsNullOrEmpty($endpoint)) { $endpoint = "http://localhost" }
+            if ((Get-AagentCursorEndpointClass $endpoint) -eq "local") {
+                Set-AagentProbeResult $result ready local 2 "Local provider via Goose" `
+                    goose_local_provider_selected $selected.Source $selected.Status | Out-Null
+            } else {
+                Set-AagentProbeResult $result ready unknown 2 "Remote self-hosted Goose provider" `
+                    goose_remote_local_provider_selected $selected.Source $selected.Status | Out-Null
+            }
+            return $result
+        }
+        { $_.StartsWith("custom_", [StringComparison]::Ordinal) } {
+            return Invoke-AagentGooseCustomProviderProbe $selected
+        }
+        { $_ -in @(
+            "anthropic", "openai", "google", "openrouter", "groq", "mistral", "xai", "avian",
+            "huggingface", "nanogpt", "ollama_cloud", "tetrate", "meta", "nearai", "novita",
+            "perplexity", "scaleway", "venice", "zai", "zhipu", "cerebras", "deepseek",
+            "fireworks", "inception", "moonshot", "nvidia", "together", "vercel_ai_gateway"
+        ) } {
+            $shadowing = Get-AagentPresentEnvironmentNames @("GOOSE_PROVIDER__API_KEY")
+            Set-AagentProbeResult $result ready payg_byok 2 "API provider via Goose" `
+                goose_api_provider_selected $selected.Source $selected.Status $shadowing | Out-Null
+            return $result
+        }
+    }
+
+    Set-AagentProbeResult $result ready unknown 2 "Goose provider" goose_provider_selected `
+        $selected.Source $selected.Status | Out-Null
+    return $result
+}
+
 function Get-AagentDroidSettingsPaths([string] $WorkingDirectory) {
     $paths = [Collections.Generic.List[string]]::new()
     $addSettingsDirectory = {
@@ -1349,6 +1676,7 @@ function Invoke-AagentProviderProbe(
         "gemini" { return Invoke-AagentGeminiProbe }
         "amp" { return Invoke-AagentAmpProbe }
         "cursor" { return Invoke-AagentCursorProbe $Executable }
+        "goose" { return Invoke-AagentGooseProbe }
         "droid" { return Invoke-AagentDroidProbe $WorkingDirectory $Model }
         default {
             $result = New-AagentProbeResult $Provider
@@ -1368,6 +1696,13 @@ function New-AagentAuthEnvironmentPlan {
 
 function Resolve-AagentProbeAuthPolicy($Probe, [string] $AuthPolicy) {
     $plan = New-AagentAuthEnvironmentPlan
+    if ($Probe.Provider -eq "goose" -and -not [string]::IsNullOrEmpty($Probe.UnderlyingProvider)) {
+        $savedProvider = $Probe.Provider
+        $Probe.Provider = $Probe.UnderlyingProvider
+        $projected = Resolve-AagentProbeAuthPolicy $Probe $AuthPolicy
+        $projected.Probe.Provider = $savedProvider
+        return $projected
+    }
     switch ($Probe.Provider) {
         "claude" {
             $customRoute = @(Get-AagentClaudeCustomRouteEnvironmentNames)
@@ -2248,6 +2583,41 @@ function New-AagentAdapterLaunchPlan($Result, $Adapter, [string] $Executable) {
             $stdinData = ""
             $inputDescription = "argv"
         }
+        "goose" {
+            $arguments.Add("run")
+            $displayArguments.Add("run")
+            if (-not [string]::IsNullOrEmpty($Result.Model)) {
+                $arguments.Add("--model")
+                $displayArguments.Add("--model")
+                $arguments.Add($Result.Model)
+                $displayArguments.Add("<model>")
+            }
+            foreach ($argument in $Result.NativeArguments) {
+                $arguments.Add($argument)
+                $displayArguments.Add("<native>")
+            }
+            switch ($Result.InputMode) {
+                "prompt" {
+                    $arguments.Add("--text")
+                    $displayArguments.Add("--text")
+                    $arguments.Add($Result.Prompt)
+                    $displayArguments.Add("<prompt>")
+                }
+                "stdin" {
+                    $arguments.Add("--instructions")
+                    $displayArguments.Add("--instructions")
+                    $arguments.Add("-")
+                    $displayArguments.Add("-")
+                }
+                "both" {
+                    $stdinData = "$($Result.Prompt)`n`n--- stdin context ---`n$($Result.Stdin)"
+                    $arguments.Add("--instructions")
+                    $displayArguments.Add("--instructions")
+                    $arguments.Add("-")
+                    $displayArguments.Add("-")
+                }
+            }
+        }
         "droid" {
             $arguments.Add("exec")
             $displayArguments.Add("exec")
@@ -2357,8 +2727,8 @@ function Invoke-AagentExplicitProvider($Result) {
     }
 
     $authEnvironmentPlan = New-AagentAuthEnvironmentPlan
-    if ($adapter.Id -in @("claude", "codex")) {
-        $probe = Invoke-AagentProviderProbe $adapter.Id $target.Path
+    if ($adapter.Id -in @("claude", "codex", "goose")) {
+        $probe = Invoke-AagentProviderProbe $adapter.Id $target.Path $Result.Cwd $Result.Model
         $projected = Resolve-AagentProbeAuthPolicy $probe $Result.AuthPolicy
         $authEnvironmentPlan = $projected.EnvironmentPlan
     }

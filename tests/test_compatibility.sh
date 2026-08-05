@@ -50,6 +50,7 @@ case "$surface" in
             gemini) printf '%s\n' 'Usage: gemini --prompt --model' ;;
             cursor) printf '%s\n' 'Usage: agent Start the Cursor Agent --print --output-format --model --force status' ;;
             droid) printf '%s\n' 'Usage: droid exec' ;;
+            goose) printf '%s\n' 'Usage: goose run' ;;
         esac
         ;;
     'auth --help')
@@ -68,7 +69,13 @@ case "$surface" in
         ;;
     'app-server --help') printf '%s\n' 'codex app-server' ;;
     'login --help') printf '%s\n' 'codex login status' ;;
-    'run --help') printf '%s\n' 'opencode run --model --format' ;;
+    'run --help')
+        case "$provider" in
+            opencode) printf '%s\n' 'opencode run --model --format' ;;
+            goose) printf '%s\n' 'goose run --text --instructions --model --output-format --provider --no-session' ;;
+            *) exit 2 ;;
+        esac
+        ;;
     'help providers') printf '%s\n' 'COPILOT_PROVIDER_BASE_URL' ;;
     'status --help') printf '%s\n' 'agent status --format json' ;;
     *) exit 2 ;;
@@ -76,7 +83,7 @@ esac
 EOF
 chmod +x "$fake_cli"
 
-for provider in claude codex opencode copilot amp gemini cursor droid; do
+for provider in claude codex opencode copilot amp gemini cursor droid goose; do
     output_dir="$test_dir/reports $provider"
     output="$(
         AAGENT_FAKE_COMPAT_PROVIDER="$provider" \
@@ -107,6 +114,15 @@ default_droid_output="$(
         bash "$compatibility_script" droid
 )"
 assert_contains "$default_droid_output" "passed for droid" "Droid default executable differs"
+
+ln -s "$fake_cli" "$test_dir/goose"
+default_goose_output="$(
+    PATH="$test_dir:$PATH" \
+    AAGENT_FAKE_COMPAT_PROVIDER=goose \
+    AAGENT_COMPAT_OUTPUT_DIR="$test_dir/default-goose-report" \
+        bash "$compatibility_script" goose
+)"
+assert_contains "$default_goose_output" "passed for goose" "Goose default executable differs"
 
 set +e
 AAGENT_FAKE_COMPAT_PROVIDER=amp \
