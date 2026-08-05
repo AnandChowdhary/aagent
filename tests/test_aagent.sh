@@ -19,6 +19,7 @@ security_test="$project_root/tests/test_security.sh"
 install_test="$project_root/tests/test_install.sh"
 compatibility_test="$project_root/tests/test_compatibility.sh"
 compatibility_script="$project_root/scripts/check-provider-compatibility.sh"
+docs_test="$project_root/tests/test_docs.sh"
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -67,6 +68,7 @@ bash -n \
     "$install_test" \
     "$compatibility_test" \
     "$compatibility_script" \
+    "$docs_test" \
     "${BASH_SOURCE[0]}"
 
 test_dir="$(mktemp -d)"
@@ -239,5 +241,6 @@ bash "$introspection_test"
 bash "$security_test"
 bash "$install_test"
 bash "$compatibility_test"
+bash "$docs_test"
 
 printf 'All Bash tests passed.\n'

@@ -69,7 +69,7 @@ git diff | aagent --provider gemini
 cat issue.md | aagent "fix the issue described in this document"
 
 # Run the provider from another directory.
-aagent --cwd ../service "run the tests and explain any failures"
+aagent -C ../service "run the tests and explain any failures"
 
 # Deliberately pass native options after --.
 aagent -P codex "fix the tests" -- --sandbox workspace-write
@@ -100,6 +100,10 @@ Use `-P`/`--provider` for an unconditional provider choice and `-m`/`--model`
 for an opaque provider-native model ID. Model names are not translated between
 vendors. Amp has no documented general per-run model flag, so requesting one
 with Amp fails before launch.
+
+Use `-C`/`--cwd` to set the provider's working directory. `--dry-run` prints a
+redacted launch plan, while `--quiet` hides only the wrapper's selection
+notice. Run `aagent --help` for the complete option summary.
 
 Everything after the first wrapper-level `--` is passed as provider-native
 arguments. This is the escape hatch for native sandboxes, approval modes,

@@ -105,6 +105,15 @@ passive-status command surfaces used by its adapter. It receives no repository
 secrets, does not authenticate, and never invokes a prompt. Deterministic fake
 CLI fixtures exercise the same checker in the normal Bash platform matrix.
 
+## Documentation contract tests
+
+Both runners enforce the same stable help surface. Documentation tests require
+every public option and subcommand in help, README, and the command-line
+contract; execute representative native-argument and prompt-plus-stdin
+examples through redacted dry-runs; compare Bash and PowerShell help wherever
+both runners are present; and reject broken local Markdown links. The examples
+use fake providers and prove that no provider run starts.
+
 ## MVP acceptance criteria
 
 The implementation is complete only when:

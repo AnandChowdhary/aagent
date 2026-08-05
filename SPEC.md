@@ -1,8 +1,8 @@
 # aagent specification
 
-Status: Draft
+Status: Release candidate
 Research snapshot: 2026-08-04
-Implementation status: MVP implementation in progress through Phase 10
+Implementation status: Functional MVP; release verification in progress
 
 ## Summary
 

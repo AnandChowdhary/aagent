@@ -755,9 +755,12 @@ Deliverable: installable, documented MVP with passing cross-platform CI
   Evidence: `README.md` documents every required user-facing surface and the
   provider-specific behavior retained by the wrapper.
 
-- [ ] **P11-09 Synchronize help, README, and specification.**
+- [x] **P11-09 Synchronize help, README, and specification.**
   Add a test for stable option/subcommand coverage and ensure examples are valid
   in both Bash-oriented and PowerShell-oriented contexts.
+
+  Evidence: `tests/test_docs.sh` and `tests/test_docs.ps1` enforce cross-runner
+  help parity, public-surface coverage, executable examples, and local links.
 
 - [ ] **P11-10 Run the full local release gate.**
   Execute syntax checks, Bash tests, PowerShell tests when available, Markdown
