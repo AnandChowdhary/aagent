@@ -30,8 +30,9 @@ for path in "$release_dir"/*; do
     [[ -f "$path" ]] || fail "release package contains a non-file asset"
     asset_names+="${path##*/}"$'\n'
 done
-actual_assets="$(printf '%s' "$asset_names" | sort | tr '\n' ' ')"
-[[ "$actual_assets" == "${expected_assets[*]} " ]] || fail "release asset set differs"
+actual_assets="$(printf '%s' "$asset_names" | LC_ALL=C sort | tr '\n' ' ')"
+[[ "$actual_assets" == "${expected_assets[*]} " ]] || \
+    fail "release asset set differs: $actual_assets"
 cmp "$project_root/SHA256SUMS" "$release_dir/SHA256SUMS" || fail "packaged checksum manifest differs"
 for asset in aagent.sh aagent.ps1 install.sh install.ps1; do
     cmp "$project_root/$asset" "$release_dir/$asset" || fail "packaged $asset differs"
