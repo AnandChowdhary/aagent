@@ -12,6 +12,7 @@ acceptance_evidence="$project_root/docs/acceptance-evidence.md"
 specification="$project_root/SPEC.md"
 ledger="$project_root/TODO.md"
 copilot_research="$project_root/docs/research/copilot-cli-2026-08-05.md"
+cursor_research="$project_root/docs/research/cursor-cli-2026-08-05.md"
 adapter_spec="$project_root/docs/spec/adapters.md"
 probe_spec="$project_root/docs/spec/probes.md"
 security_spec="$project_root/docs/spec/security.md"
@@ -41,6 +42,7 @@ acceptance_text="$(<"$acceptance_evidence")"
 specification_text="$(<"$specification")"
 ledger_text="$(<"$ledger")"
 copilot_research_text="$(<"$copilot_research")"
+cursor_research_text="$(<"$cursor_research")"
 adapter_spec_text="$(<"$adapter_spec")"
 probe_spec_text="$(<"$probe_spec")"
 security_spec_text="$(<"$security_spec")"
@@ -76,6 +78,21 @@ copilot_research_contract=(
 for evidence in "${copilot_research_contract[@]}"; do
     assert_contains "$copilot_research_text" "$evidence" "Copilot revalidation omitted $evidence"
 done
+
+cursor_research_contract=(
+    'Status: Normative implementation input for P12A-04'
+    '2026.07.23-e383d2b'
+    'f2eb25851f2079dcdf0558a816e06c402d187abfca93255d35167020439ebbf2'
+    'agent --print --output-format text PROMPT'
+    'isAuthenticated'
+    'CURSOR_API_KEY'
+    'No unresolved interface question blocks P12A-04'
+)
+for evidence in "${cursor_research_contract[@]}"; do
+    assert_contains "$cursor_research_text" "$evidence" "Cursor revalidation omitted $evidence"
+done
+assert_contains "$ledger_text" "- [x] **P12A-03 Revalidate Cursor CLI.**" \
+    "implementation ledger does not mark Cursor revalidation complete"
 
 copilot_implementation_contract=(
     "GitHub Copilot CLI (\`copilot\`)"

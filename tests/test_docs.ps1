@@ -9,6 +9,7 @@ $acceptancePath = Join-Path $projectRoot "docs/acceptance-evidence.md"
 $specificationPath = Join-Path $projectRoot "SPEC.md"
 $ledgerPath = Join-Path $projectRoot "TODO.md"
 $copilotResearchPath = Join-Path $projectRoot "docs/research/copilot-cli-2026-08-05.md"
+$cursorResearchPath = Join-Path $projectRoot "docs/research/cursor-cli-2026-08-05.md"
 $adapterSpecPath = Join-Path $projectRoot "docs/spec/adapters.md"
 $probeSpecPath = Join-Path $projectRoot "docs/spec/probes.md"
 $securitySpecPath = Join-Path $projectRoot "docs/spec/security.md"
@@ -25,6 +26,7 @@ $acceptance = [IO.File]::ReadAllText($acceptancePath, $utf8)
 $specification = [IO.File]::ReadAllText($specificationPath, $utf8)
 $ledger = [IO.File]::ReadAllText($ledgerPath, $utf8)
 $copilotResearch = [IO.File]::ReadAllText($copilotResearchPath, $utf8)
+$cursorResearch = [IO.File]::ReadAllText($cursorResearchPath, $utf8)
 $adapterSpec = [IO.File]::ReadAllText($adapterSpecPath, $utf8)
 $probeSpec = [IO.File]::ReadAllText($probeSpecPath, $utf8)
 $securitySpec = [IO.File]::ReadAllText($securitySpecPath, $utf8)
@@ -60,6 +62,21 @@ $copilotResearchContract = @(
 foreach ($evidence in $copilotResearchContract) {
     Assert-DocsContains $copilotResearch $evidence "Copilot revalidation omitted $evidence"
 }
+
+$cursorResearchContract = @(
+    "Status: Normative implementation input for P12A-04",
+    "2026.07.23-e383d2b",
+    "f2eb25851f2079dcdf0558a816e06c402d187abfca93255d35167020439ebbf2",
+    "agent --print --output-format text PROMPT",
+    "isAuthenticated",
+    "CURSOR_API_KEY",
+    "No unresolved interface question blocks P12A-04"
+)
+foreach ($evidence in $cursorResearchContract) {
+    Assert-DocsContains $cursorResearch $evidence "Cursor revalidation omitted $evidence"
+}
+Assert-DocsContains $ledger '- [x] **P12A-03 Revalidate Cursor CLI.**' `
+    "Implementation ledger does not mark Cursor revalidation complete"
 
 $copilotImplementationContract = @(
     'GitHub Copilot CLI (`copilot`)',
